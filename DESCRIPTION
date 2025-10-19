@@ -1,18 +1,32 @@
 Package: varma
 Type: Package
-Title: What the Package Does (Title Case)
+Title: Tools for Vector Autoregressive Moving-Average (VARMA) Model Analysis
 Version: 0.1.0
 Authors@R: c(
     person(
-      "Jane", "Doe",
-      email = "jane@example.com",
+      "Matteo", "Pelagatti",
+      email = "matteo.pelagatti@unimib.it",
       role = c("aut", "cre")
     )
   )
-Description: More about what it does (maybe more than one line).
-    Continuation lines should be indented.
-License: What license is it under?
+Description: Provides a comprehensive suite of functions for multivariate time
+    series analysis using Vector Autoregressive Moving-Average (VARMA)
+    models. The package supports model specification, parameter estimation,
+    statistical inference, bootstrapping, and diagnostic checking.
+    Core computational routines are implemented in C++ via 'Rcpp' for performance.
+License: GPL (>= 3)
 Encoding: UTF-8
 LazyData: true
 URL: https://github.com/matteopelagatti/varma
 BugReports: https://github.com/matteopelagatti/varma/issues
+Imports:
+  Rcpp
+  RcppArmadillo
+  KFAS
+  FKF.SP
+  Matrix
+Suggest:
+  future
+  future.apply
+  MTS
+  fable
