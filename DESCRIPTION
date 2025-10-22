@@ -20,13 +20,15 @@ LazyData: true
 URL: https://github.com/matteopelagatti/varma
 BugReports: https://github.com/matteopelagatti/varma/issues
 Imports:
-  Rcpp
-  RcppArmadillo
-  KFAS
-  FKF.SP
-  Matrix
+  stats,
+  KFAS (>= 1.6.0),
+  FKF.SP (>= 0.3.4),
+  Matrix,
+  netcontrol (>= 0.1),
+  future (>= 1.67.0),
+  future.apply (>= 1.20.0)
 Suggest:
-  future
-  future.apply
-  MTS
-  fable
+  MTS (>= 1.2.1),
+  fable (>= 0.4.1)
+LinkingTo: Rcpp, RcppArmadillo
+RoxygenNote: 7.3.3

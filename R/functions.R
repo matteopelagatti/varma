@@ -13,29 +13,29 @@
 #' the dimension of the time series vector, the largest lag of the VAR part of the model,
 #' the largest lag of the VMA part of the mode, and the number of time series points, respectively.
 #'
-#' @param intercept \eqn{m}-vector with the intercepts
-#' @param mean \eqn{m}-vector with means (typically in alternative to `intercept`)
-#' @param ar array of dimensions \eqn{m \times m \times p} containing the VAR matrices
-#' @param ma array of dimensions \eqn{m \times m \times q} containing the VMA matrices
-#' @param cov \eqn{m\times m} covariance matrix of the innovations
+#' @param intercept \eqn{m}-vector with the intercepts.
+#' @param mean \eqn{m}-vector with means (typically in alternative to `intercept`).
+#' @param ar array of dimensions \eqn{m \times m \times p} containing the VAR matrices.
+#' @param ma array of dimensions \eqn{m \times m \times q} containing the VMA matrices.
+#' @param cov \eqn{m\times m} covariance matrix of the innovations.
 #' @param chol_cov  Cholesky factor of the covariance matrix of the innovations: this is rearly used,
 #' but if some function working with varma objects produces it, it is good to store it to
-#' make its reusable by other functions, that can be more efficient
-#' @param estimation_method string with the name of the function that produced the estimates
-#' @param loglik value of the log-likelihood function for the estimated VARMA
-#' @param n number of time-points of the time series (regardless of possible missing observations)
-#' @param nobs total number of observations (if no missing observations are present, `nobs`\eqn{=nm})
-#' @param npar number of estimated parameters
-#' @param y \eqn{n\times m} or \eqn{n-p\times m} data matrix
-#' @param residulas \eqn{n\times m} or \eqn{n-p\times m} residuals matrix
-#' @param state_pred_mean mean of the one-step-ahead predicted state vector
-#' at time \eqn{t = n+1} (relevant if the VARMA was estimated in state-space form)
+#' make its reusable by other functions, that can be more efficient.
+#' @param estimation_method string with the name of the function that produced the estimates.
+#' @param loglik value of the log-likelihood function for the estimated VARMA.
+#' @param n number of time-points of the time series (regardless of possible missing observations).
+#' @param nobs total number of observations (if no missing observations are present, `nobs`\eqn{=nm}).
+#' @param npar number of estimated parameters.
+#' @param y \eqn{n\times m} or \eqn{n-p\times m} data matrix.
+#' @param residuals \eqn{n\times m} or \eqn{n-p\times m} residuals matrix.
+#' @param state_pred_mean mean of the one-step-ahead predicted state vector.
+#' at time \eqn{t = n+1} (relevant if the VARMA was estimated in state-space form).
 #' @param state_pred_cov covariance matrix of the one-step-ahead predicted state vector
-#' at time \eqn{t = n+1} (relevant if the VARMA was estimated in state-space form)
+#' at time \eqn{t = n+1} (relevant if the VARMA was estimated in state-space form).
 #' @param transition_matrix transition matrix of the VARMA in state space
-#' (relevant if the VARMA was estimated in state-space form)
+#' (relevant if the VARMA was estimated in state-space form).
 #' @param disturbance_cov covariance matrix of the state disturbance vector
-#' (relevant if the VARMA was estimated in state-space form)
+#' (relevant if the VARMA was estimated in state-space form).
 #'
 #' @export
 varma <- function(intercept = NULL,
@@ -84,52 +84,55 @@ varma <- function(intercept = NULL,
 # --- Functions that extract infos from varma objects ---
 
 
-#' Dimensions of varma object
+#' Dimensions of a varma object
 #'
-#' @param varma a varma object
+#' @param x a varma object.
 #'
 #' @returns A vector of length 3 with the dimensions of the varma object:
 #' number of time seires (m), order of AR part (p), order of MA part (q).
 #'
+#' @method dim varma
 #' @export
-dim.varma <- function(varma) {
+dim.varma <- function(x) {
   # returns the dimensions of the varma object
   out <- c(m = 0, p = 0, q = 0)
-  if (!is.null(varma$ar)) {
-    out[1] <- dim(varma$ar)[1]
-    out[2] <- dim(varma$ar)[3]
+  if (!is.null(x$ar)) {
+    out[1] <- dim(x$ar)[1]
+    out[2] <- dim(x$ar)[3]
   }
-  if (!is.null(varma$ma)) {
-    out[1] <- dim(varma$ma)[1]
-    out[3] <- dim(varma$ma)[3]
+  if (!is.null(x$ma)) {
+    out[1] <- dim(x$ma)[1]
+    out[3] <- dim(x$ma)[3]
   }
   out
 }
 
 #' Print method for varma object
 #'
-#' @param varma a varma object
+#' @param x a varma object.
+#' @param ... not used.
 #'
-#' @returns Nothing
+#' @returns Nothing.
 #'
+#' @method print varma
 #' @export
-print.varma <- function(varma) {
-  mpq <- dim(varma)
+print.varma <- function(x, ...) {
+  mpq <- dim(x)
   # prints the varma object
   cat("VARMA(", mpq[2], ", ", mpq[3], ") model with ",
       mpq[1]," time series\n", sep = "")
-  if (!is.null(varma$intercept)) {
+  if (!is.null(x$intercept)) {
     cat("Intercept vector:\n")
-    print(varma$intercept)
+    print(x$intercept)
   }
-  if (!is.null(varma$mean)) {
+  if (!is.null(x$mean)) {
     cat("Mean vector:\n")
-    print(varma$mean)
+    print(x$mean)
   }
-  if (!is.null(varma$ar) && mpq[2] > 0) {
+  if (!is.null(x$ar) && mpq[2] > 0) {
     cat("\nAR part:\n")
     for (i in 1:mpq[2]) {
-      M <- varma$ar[,,i]
+      M <- x$ar[,,i]
       dimnames(M) <- list(
         paste0("y", 1:mpq[1], "_t"),
         paste0("y", 1:mpq[1], "_[t-", i, "]")
@@ -137,10 +140,10 @@ print.varma <- function(varma) {
       print(M)
     }
   }
-  if (!is.null(varma$ma) && mpq[3] > 0) {
+  if (!is.null(x$ma) && mpq[3] > 0) {
     cat("\nMA part:\n")
     for (i in 1:mpq[3]) {
-      M <- varma$ma[,,i]
+      M <- x$ma[,,i]
       dimnames(M) <- list(
       paste0("y", 1:mpq[1], "_t"),
       paste0("e", 1:mpq[1], "_[t-", i, "]")
@@ -149,25 +152,25 @@ print.varma <- function(varma) {
     }
   }
   cat("\nCovariance matrix:\n")
-  dimnames(varma$cov) <- list(
+  dimnames(x$cov) <- list(
     paste0("e", 1:mpq[1]),
     paste0("e", 1:mpq[1])
   )
-  print(varma$cov)
-  if (!is.null(varma$estimation_method)) {
-    cat("\nEstimated using", varma$estimation_method, "\n")
+  print(x$cov)
+  if (!is.null(x$estimation_method)) {
+    cat("\nEstimated using", x$estimation_method, "\n")
   }
-  if (!is.null(varma$loglik)) {
-    npar <- if (is.null(varma$npar)) {
+  if (!is.null(x$loglik)) {
+    npar <- if (is.null(x$npar)) {
       mpq[1]*mpq[1]*mpq[2] + mpq[1]*mpq[1]*mpq[3] + mpq[1]*(mpq[1]+1)/2
-    } else varma$npar
-    cat("N. of non-missing observations =", varma$nobs, "\n")
+    } else x$npar
+    cat("N. of non-missing observations =", x$nobs, "\n")
     cat("N. of estimated parameters     =", npar, "\n")
-    cat("log-lik =", varma$loglik, "\n")
-    cat("AIC     =", -2*varma$loglik + 2*npar, "\n")
-    cat("AICc    =", -2*varma$loglik + 2*npar + 2*npar*(npar + 1)/(varma$nobs - npar - 1), "\n")
-    cat("BIC     =", -2*varma$loglik + npar*log(varma$nobs), "\n")
-    cat("HQC     =", -2*varma$loglik + npar*log(log(varma$nobs)), "\n")
+    cat("log-lik =", x$loglik, "\n")
+    cat("AIC     =", -2*x$loglik + 2*npar, "\n")
+    cat("AICc    =", -2*x$loglik + 2*npar + 2*npar*(npar + 1)/(x$nobs - npar - 1), "\n")
+    cat("BIC     =", -2*x$loglik + npar*log(x$nobs), "\n")
+    cat("HQC     =", -2*x$loglik + npar*log(log(x$nobs)), "\n")
   }
 }
 
@@ -177,9 +180,9 @@ print.varma <- function(varma) {
 #'
 #' It computes the companion form of the AR and of the MA part.
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
 #' @param part vector of strings: can be `"ar"`, `"ma"` or both `c("ar", "ma")`,
-#' indicating which part should ne cast in companion form
+#' indicating which part should ne cast in companion form.
 #'
 #' @export
 companion_form <- function(varma, part = c("ar", "ma")) {
@@ -217,7 +220,8 @@ companion_form <- function(varma, part = c("ar", "ma")) {
 #' \eqn{\alpha_{t+1} = T \alpha_t + R \eta_t}
 #' where \eqn{\eta_t} is a white noise process with covariance matrix \eqn{Q}.
 #'
-#' @param varma varma object
+#' @param varma varma object.
+#' @param form string with the name of the state-space form to use: "harvey" or "pearlman".
 #'
 #' @returns A list with the following matrices of the state-space form:
 #' T, R, Q, Z.
@@ -262,13 +266,14 @@ varma_to_ss <- function(varma, form = c("harvey", "pearlman")) {
 #' It computes the inverse roots of the AR and MA parts and produces
 #' plots of the roots in the complex plane, together with the unit circle.
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
 #' @param part a character vector indicating which polynomial equation has
 #' to be solved: it can be `"ar"`, `"ma"` or both `c("ar", "ma")`.
-#' @param plot boolena, if TRUE, the function will plot the roots in the complex plane
+#' @param plot logical, if TRUE, the function will plot the roots in the complex plane.
 #'
 #' @returns A list with the AR roots (`$ar`) and the MA roots (`$ma`).
 #'
+#' @importFrom graphics abline lines mtext par points polypath
 #' @export
 inv_roots <- function(varma, part = c("ar", "ma"), plot = FALSE) {
   # returns the inverse of the roots of the characteristic polynomial
@@ -316,10 +321,11 @@ inv_roots <- function(varma, part = c("ar", "ma"), plot = FALSE) {
 #' The function checks if the VARMA process is identified by numerically checking if the
 #' roots of the characteristic polynomials are distinct.
 #'
-#' @param arma a varma object
-#' @param tol a numeric value indicating the tolerance for the numerical check
+#' @param varma a varma object.
+#' @param tol a small numeric value indicating the tolerance for the numerical check
+#' (default: 1e-5).
 #'
-#' @returns TRUE if the VARMA is identified and FALSE otherwise
+#' @returns TRUE if the VARMA is identified and FALSE otherwise.
 #'
 #' @export
 is_identified <- function(varma, tol = 1e-5) {
@@ -340,20 +346,22 @@ is_identified <- function(varma, tol = 1e-5) {
 }
 
 
-
-# ---- functions that transform varma objects ----
-
 #' Impulse response function of VARMA process
 #'
-#' @param varma a varma object
-#' @param maxlag the matrices of impulse responses are compute from lag zero to
-#' `lagmax`
+#' @param varma a varma object.
+#' @param maxlag positive integer indicating the maximum lag for which the IRF
+#' is computed.
+#' `lagmax`.
 #' @param orth a character string indicating the orthogonalization method to be used:
-#' "none", "cholesky", "spectral", "generalized" are the available options
-#' @param plot logical, if TRUE, the function will plot the impulse response functions
+#' "none", "cholesky", "spectral", "generalized" are the available options.
+#' @param plot logical, if TRUE, the function plots the IRFs.
+#' @param title string with a title for the plot (default to NULL, that is, no title).
+#' @param varnames vector of strings with the names of the variables.
 #'
-#' @returns A 3D array with the impulse response functions of the VARMA process
 #'
+#' @returns A 3D array with the impulse response functions of the VARMA process.
+#'
+#' @importFrom graphics abline lines mtext par points polypath
 #' @export
 irf <- function(varma, maxlag = 10,
                 orth = c("none", "cholesky", "spectral", "generalized"),
@@ -395,7 +403,7 @@ irf <- function(varma, maxlag = 10,
       for (j in 1:mpq[1]) {
         plot(0:maxlag, psi[i, j, ], type = "p", pch = 20,
              xlab = "", ylab = "",
-             main = paste(varnames[j], "→", varnames[i]),
+             main = paste(varnames[j], "\u8594", varnames[i]),
              ylim = c(min(psi), max(psi)))
         lines(0:maxlag, psi[i, j, ], col = "blue")
       }
@@ -409,14 +417,14 @@ irf <- function(varma, maxlag = 10,
 
 #' Simulate VARMA process
 #'
-#' @param varma a varma object
-#' @param n number of observations to be simulated
-#' @param burn_in number of initial observations to be discarded
+#' @param varma a varma object.
+#' @param n number of observations to be simulated.
+#' @param burn_in number of initial observations to discard.
 #' @param var_in_rows boolean, if TRUE, the variables are in rows,
 #' otherwise they are in columns (the internal Rcpp function works with
-#' variables in rows, so TRUE makes the function slightly faster)
+#' variables in rows, so TRUE makes the function slightly faster).
 #'
-#' @returns A matrix with the simulated data
+#' @returns A matrix with the simulated data.
 #'
 #' @export
 sim_varma <- function(varma, n = 200, burn_in = 100, var_in_rows = FALSE) {
@@ -467,9 +475,10 @@ sim_varma <- function(varma, n = 200, burn_in = 100, var_in_rows = FALSE) {
 #' process and the following formula for the variance of the state variable
 #' \eqn{vec(\Gamma_0) = (I - T \otimes T)^{-1} vec(RQR')}
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
 #'
-#' @returns Array with autocovariance matrices
+#' @returns Array with autocovariance matrices.
 #'
 #' @export
 autocov_vk <- function(varma, maxlag = 10) { # based on vectorization and Kronecker product
@@ -494,9 +503,10 @@ autocov_vk <- function(varma, maxlag = 10) { # based on vectorization and Kronec
 #' process and the following formula for the variance of the state variable
 #' \eqn{vec(\Gamma_0) = (I - T \otimes T)^{-1} vec(RQR')}
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
 #'
-#' @returns Array with autocovariance matrices
+#' @returns Array with autocovariance matrices.
 #'
 #' @export
 autocov_sp <- function(varma, maxlag = 10) { # based on vectorization and Kronecker product
@@ -511,7 +521,6 @@ autocov_sp <- function(varma, maxlag = 10) { # based on vectorization and Kronec
     solve(Id - Matrix::kronecker(mT, mT), as.numeric(ss$R %*% tcrossprod(ss$Q, ss$R))),
     k, k
   )
-  # G[,,1] <- matrix(solve(diag(1, k*k, k*k) - (ss$T %x% ss$T)) %*% as.numeric(ss$R %*% ss$Q %*% t(ss$R)), k, k)
   if (maxlag > 0) for (i in 1:maxlag) {
     G[,,i+1] <- as.matrix(mT %*% G[,,i])
   }
@@ -526,9 +535,10 @@ autocov_sp <- function(varma, maxlag = 10) { # based on vectorization and Kronec
 #' of the package netcontrol:
 #' \eqn{vec(\Gamma_0) = (I - T \otimes T)^{-1} vec(RQR')}
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
 #'
-#' @returns Array with autocovariance matrices
+#' @returns Array with autocovariance matrices.
 #'
 #' @export
 autocov_ly <- function(varma, maxlag = 10) { # based on Lyapunov equation solution in package netcontrol
@@ -549,9 +559,10 @@ autocov_ly <- function(varma, maxlag = 10) { # based on Lyapunov equation soluti
 #' It computes the autocovariances using the state-space representation of the VARMA process and
 #' the algorithm og Giacomo Sbrana
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
 #'
-#' @returns Array with autocovariance matrices
+#' @returns Array with autocovariance matrices.
 #'
 #' @export
 autocov_gs <- function(varma, maxlag = 10) { # based on the method of Giacomo Sbrana
@@ -562,7 +573,7 @@ autocov_gs <- function(varma, maxlag = 10) { # based on the method of Giacomo Sb
   if (mpq[2] > 0) {
     ei <- eigen(ss$T)
     if (all(ei$values == 0)) {
-      G[,,1] <- solve_dlyap_iter(Matrix(ss$T, sparse = TRUE), ss$R %*% ss$Q %*% t(ss$R))
+      G[,,1] <- solve_dlyap_iter(Matrix::Matrix(ss$T, sparse = TRUE), ss$R %*% ss$Q %*% t(ss$R))
     } else {
       K <- ss$T[, 1:mpq[1]] + rbind(ss$R[-(1:mpq[1]), ], matrix(0, mpq[1], mpq[1])) # ss$T %*% ss$R
       V <- ei$vectors
@@ -584,11 +595,13 @@ autocov_gs <- function(varma, maxlag = 10) { # based on the method of Giacomo Sb
 
 #' Autocovariance function of VARMA process
 #'
-#' It computes the autocovariances using Tucker McElroy's algorithm
+#' It computes the autocovariances using Tucker McElroy's algorithm.
+#' The function is based on the original R code made available by the author.
 #'
-#' @param varma a varma object
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
 #'
-#' @returns Array with autocovariance matrices
+#' @returns Array with autocovariance matrices.
 #'
 #' @export
 autocov_mc <- function(varma, maxlag = 10) { # based on Tucker McElroy's code
@@ -725,7 +738,7 @@ autocov_mc <- function(varma, maxlag = 10) { # based on Tucker McElroy's code
   } else
   {
     gamARMA <- array(gamMA[,,1],c(m,m,1))
-    if (q == 0) { gamMix <- array(varva$cov,c(m,m,1)) } else
+    if (q == 0) { gamMix <- array(varma$cov,c(m,m,1)) } else
     {
       gamMix <- gamMA[,,1:(q+1)]
       if(m==1) gamMix <- array(gamMix,c(1,1,q+1))
@@ -761,19 +774,17 @@ autocov_mc <- function(varma, maxlag = 10) { # based on Tucker McElroy's code
 }
 
 
-# VARMA estimators
-
 #' VARMA estimation using the iterated Hannan-Rissanen method
 #'
-#' @param Y a (n x m) matrix with the time series
-#' @param p order of the AR part
-#' @param q order of the MA part
-#' @param intercept boolean, if TRUE, the model will include an intercept
+#' @param Y a (n x m) matrix with the time series.
+#' @param p order of the AR part.
+#' @param q order of the MA part.
+#' @param intercept logical, if TRUE, the model includes an intercept.
 #' @param maxdiff maximum difference between the coefficients of two consecutive iterations:
-#' it is used as a threshold to stop the iterations
-#' @param maxit maximum number of iterations
-#' @param r integer order of the first step VAR(r) model
-#' @param ret a character string indicating the type of output: "varma" or "regression"
+#' it is used as a threshold to stop the iterations.
+#' @param maxit maximum number of iterations.
+#' @param r integer order of the first step VAR(r) model.
+#' @param ret a character string indicating the type of output: "varma" or "regression".
 #'
 #' @returns If ret = "varma" a varma object, otherwise a list with the following elements:
 #' coefficients, matrix of residuals, fitted.values, effects, weights, rank,
@@ -801,7 +812,7 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
   # pure VAR
   if (q < 1) {
     X <- if (intercept) cbind(1, embed(Y, p+1)[, -(1:m)]) else embed(Y, p+1)[, -(1:m)]
-    reg1 <- lm.fit(X, Y[-(1:p),])
+    reg1 <- stats::lm.fit(X, Y[-(1:p),])
     reg1$n_iter <- 0
     dimnames(reg1$coefficients) <- list(
       reg_names,
@@ -843,7 +854,7 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
   }
   # initial VAR with order = (p+q)
   X <- if (intercept) cbind(1, embed(Y, r+1)[, -(1:m)]) else embed(Y, r+1)[, -(1:m)]
-  m1 <- lm.fit(X, Y[-(1:r),])
+  m1 <- stats::lm.fit(X, Y[-(1:r),])
   E <- rbind(matrix(0, r, m), m1$residuals)
   # main iterations
   for (it in 1:maxit) {
@@ -851,7 +862,7 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
     Elag <- rbind(matrix(0, q, m*q), embed(E, q+1)[, -(1:m)])[(p+1):n, ]
     if (intercept) X = cbind(1, Ylag, Elag) else X = cbind(Ylag, Elag)
     if (it > 1) reg0 <- reg1
-    reg1 <- lm.fit(X, Y[(p+1):n, ])
+    reg1 <- stats::lm.fit(X, Y[(p+1):n, ])
     if (it > 1) {
       if (max(abs(reg1$coefficients - reg0$coefficients), na.rm = TRUE) < maxdiff) break
     }
@@ -909,28 +920,28 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
 
 #' VARMA estimation using the iterated Hannan-Rissanen method with regularization
 #'
-#' @param Y a (n x m) matrix with the time series
-#' @param p order of the AR part
-#' @param q order of the MA part
-#' @param intercept boolean, if TRUE, the model will include an intercept
-#' @param lambda positive numeric regularization parameter
-#' @param alpha value in the interval [0, 1]; 1 for pure LASSO and 0 for pure RIDGE
+#' @param Y a (n x m) matrix with the time series.
+#' @param p order of the AR part.
+#' @param q order of the MA part.
+#' @param intercept boolean, if TRUE, the model will include an intercept.
+#' @param lambda positive numeric regularization parameter.
+#' @param alpha value in the interval [0, 1]; 1 for pure LASSO and 0 for pure RIDGE.
 #' @param relax logical, if FALSE the classical elastic net is used, if TRUE (default)
 #' the estimations and cross validation are done also using regression coefficients
 #' computed as \eqn{(1-\gamma)\beta^{OLS}_i + \gamma \beta_i}, where \eqn{i} ranges
 #' over the set of non-zero coefficients and \eqn{\beta^{OLS}_i} denotes the
-#' regression coefficient computed by OLS (using only the active regressors)
-#' @param gamma vector of weights in the range \eqn{[0, 1]} to be used when
-#' `relax = TRUE`. The default is 0, corresponding to Post-LASSO OLS
+#' regression coefficient computed by OLS (using only the active regressors).
+#' @param gamma vector of weights in the range \eqn{[0, 1]} to be used when.
+#' `relax = TRUE`. The default is 0, corresponding to Post-LASSO OLS.
 #' @param sur logical, if TRUE a final seemingly unrelated regressions
-#' step is computed, otherwise the equation by equation estimate is provided
+#' step is computed, otherwise the equation by equation estimate is provided.
 #' @param maxdiff maximum difference between the coefficients of two consecutive
 #' iterations in the first step based on `fit_varma_ihr`:
-#' it is used as a threshold to stop the iterations
+#' it is used as a threshold to stop the iterations.
 #' @param maxit maximum number of iterations to be used in the first step
-#' based on `fit_varma_ihr`
-#' @param r integer order of the first step VAR(r) model used in `fit_varma_ihr`
-#' @param ret a character string indicating the type of output: "varma" or "regression"
+#' based on `fit_varma_ihr`.
+#' @param r integer order of the first step VAR(r) model used in `fit_varma_ihr`.
+#' @param ret a character string indicating the type of output: "varma" or "regression".
 #'
 #' @returns If ret = "varma" a varma object, otherwise a list with the results of
 #' cv.glmnet for each response variable.
@@ -968,9 +979,9 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
                                      relax = relax,
                                      gamma = gamma)
   }
-  coeff <- sapply(regreg, function(reg) as.numeric(coef(reg)))
+  coeff <- sapply(regreg, function(reg) as.numeric(glmnet::coef.glmnet(reg)))
   dimnames(coeff) <- dimnames(ihr$coefficients)
-  fitted <- sapply(regreg, function(reg) predict(reg, newx = X))
+  fitted <- sapply(regreg, function(reg) glmnet::predict.glmnet(reg, newx = X))
   resid  <- if (p>0) Y[-(1:p), ] - fitted else Y - fitted
   res_cov <- crossprod(resid)/nrow(X)
   nobs <- sum(!is.na(Y))
@@ -1027,15 +1038,16 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
 
 #' VARMA estimation using Maximum-Likelihood in State-Space form using KFAS
 #'
-#' @param Y a (n x m) matrix with the time series
-#' @param p order of the AR part
-#' @param q order of the MA part
-#' @param intercept boolean, if TRUE, the model will include an intercept
+#' @param Y a (n x m) matrix with the time series.
+#' @param p order of the AR part.
+#' @param q order of the MA part.
+#' @param intercept logical, if TRUE, the model will include an intercept.
 #' @param maxit integer, maximum number of iterations for the iterated Hannan-Rissanen
 #' estimator, which is used for providing starting values for numerical MLE and for
 #' computing the marginal covariance matrix of the VARMA in state-space form, used
-#' for initializing the Kalman filter
-#' @param ret a character string indicating the type of output: "varma" or "kfas" (a SSModel object)
+#' for initializing the Kalman filter.
+#' @param ret a character string indicating the type of output: "varma" or
+#' "kfas" (a KFAS' SSModel object).
 #'
 #' @returns If ret = "varma" a varma object, otherwise a SSModel object from the KFAS package.
 #'
@@ -1058,10 +1070,10 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
   mQ <- ss$Q
   mZ <- ss$Z
   a1 <- matrix(0, nrow(mT), 1)
-  P1 <- solve_dlyap_iter(Matrix(mT, sparse = TRUE), mR %*% tcrossprod(mQ, mR))
+  P1 <- solve_dlyap_iter(Matrix::Matrix(mT, sparse = TRUE), mR %*% tcrossprod(mQ, mR))
   P1inf <- matrix(0, mr, mr)
-  mod <- SSModel(
-    Y ~ 0+SSMcustom(mZ, mT, mR, mQ, a1, P1, P1inf),
+  mod <- KFAS::SSModel(
+    Y ~ 0 + KFAS::SSMcustom(mZ, mT, mR, mQ, a1, P1, P1inf),
     H = matrix(0, m, m)
   )
   # update function
@@ -1101,9 +1113,9 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
   # residual covariance matrix part
   inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
   # estimates
-  ssfit <- fitSSM(mod, inits, updt, method = "BFGS")
+  ssfit <- KFAS::fitSSM(mod, inits, updt, method = "BFGS")
   ssmod <- updt(ssfit$optim.out$par, ssfit$model)
-  ssflt <- KFS(ssmod, filtering = "state", smoothing = "none")
+  ssflt <- KFAS::KFS(ssmod, filtering = "state", smoothing = "none")
   if (ret == "kfas") return(ssfit)
   if (intercept) cnst <- ssfit$optim.out$par[1:m] else cnst <- NULL
   if (p > 0) {
@@ -1138,16 +1150,16 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
 
 #' VARMA estimation using Maximum-Likelihoo in State-Space form (FKF.SP)
 #'
-#' @param Y a (n x m) matrix with the time series
-#' @param p order of the AR part
-#' @param q order of the MA part
-#' @param intercept boolean, if TRUE, the model will include an intercept
+#' @param Y a (n x m) matrix with the time series.
+#' @param p order of the AR part.
+#' @param q order of the MA part.
+#' @param intercept boolean, if TRUE, the model will include an intercept.
 #' @param maxit integer, maximum number of iterations for the iterated Hannan-Rissanen
 #' estimator, which is used for providing starting values for numerical MLE and for
 #' computing the marginal covariance matrix of the VARMA in state-space form, used
-#' for initializing the Kalman filter
+#' for initializing the Kalman filter.
 #' @param ret a character string indicating the type of output: "varma" (default)
-#' or "ss" (a list with the state-space form matrices and fkf function output)
+#' or "ss" (a list with the state-space form matrices and fkf function output).
 #'
 #' @returns A varma object or a list with the matrices of the state-space form,
 #' according to the choice of the `ret` parameter.
@@ -1172,7 +1184,7 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
   a1 <- numeric(mr)
   mHHt <- mR %*% tcrossprod(mQ, mR)
   mGGt <- rep(0, m)
-  P1 <- solve_dlyap_iter(Matrix(mT, sparse = TRUE), mHHt)
+  P1 <- solve_dlyap_iter(Matrix::Matrix(mT, sparse = TRUE), mHHt)
   Pt <- matrix(0, m, m)
   ct <- matrix(0, m, 1)
   y <- t(Y)
@@ -1181,11 +1193,11 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
       ct[] <- matrix(pars[(1:m)], m, 1)
       pars <- pars[-(1:m)]
     }
-    if (p > 0) mT[1:(m*p), 1:m] <<- pars[1:(m*m*p)]
-    if (q > 0) mR[(m+1):(m+m*q), 1:m] <<- pars[(m*m*p+1):(m*m*p+m*m*q)]
-    Pt[upper.tri(Pt, TRUE)] <<- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
-    mQ[] <<- crossprod(Pt)
-    -fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
+    if (p > 0) mT[1:(m*p), 1:m] <- pars[1:(m*m*p)]
+    if (q > 0) mR[(m+1):(m+m*q), 1:m] <- pars[(m*m*p+1):(m*m*p+m*m*q)]
+    Pt[upper.tri(Pt, TRUE)] <- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
+    mQ[] <- crossprod(Pt)
+    -FKF.SP::fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
             Tt = mT, Zt = mZ, HHt = mR %*% tcrossprod(mQ, mR), GGt = mGGt, yt = y)
   }
   final_run <- function(pars) {
@@ -1193,12 +1205,12 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
       ct[] <- matrix(pars[(1:m)], m, 1)
       pars <- pars[-(1:m)]
     }
-    if (p > 0) mT[1:(m*p), 1:m] <<- pars[1:(m*m*p)]
-    if (q > 0) mR[(m+1):(m+m*q), 1:m] <<- pars[(m*m*p+1):(m*m*p+m*m*q)]
-    Pt[upper.tri(Pt, TRUE)] <<- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
-    mQ[] <<- crossprod(Pt)
+    if (p > 0) mT[1:(m*p), 1:m] <- pars[1:(m*m*p)]
+    if (q > 0) mR[(m+1):(m+m*q), 1:m] <- pars[(m*m*p+1):(m*m*p+m*m*q)]
+    Pt[upper.tri(Pt, TRUE)] <- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
+    mQ[] <- crossprod(Pt)
     HH = mR %*% tcrossprod(mQ, mR)
-    c(fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
+    c(FKF.SP::fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
            Tt = mT, Zt = mZ, HHt = HH, GGt = mGGt, yt = y,
            verbose = TRUE),
       list(HH = HH)
@@ -1263,10 +1275,10 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' Estimates the parameters of a VARMA(p,q) model by maximizing the
 #' likelihood computed with an efficient C++/Armadillo-based Kalman filter.
 #'
-#' @param Y A numeric matrix or ts object with d columns (series) and N rows (observations).
-#' @param p The autoregressive order.
-#' @param q The moving average order.
-#' @param intercept Boolean: if TRUE (default) a vector of intercepts is computed.
+#' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
+#' @param p the autoregressive order.
+#' @param q the moving average order.
+#' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
 #' @param maxit integer, maximum number of iterations for the iterated Hannan-Rissanen
 #' estimator, which is used for providing starting values for numerical MLE and for
 #' computing the marginal covariance matrix of the VARMA in state-space form, used
@@ -1283,8 +1295,8 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
   m <- ncol(Y)
   r <- max(p, q+1)
   # matrices for the ss form
-  mT <- Matrix(ss$T, sparse = TRUE) # sparse T
-  mR <- Matrix(ss$R, sparse = TRUE) # sparse R
+  mT <- Matrix::Matrix(ss$T, sparse = TRUE) # sparse T
+  mR <- Matrix::Matrix(ss$R, sparse = TRUE) # sparse R
   mQ <- ss$Q
   a1 <- matrix(0, nrow(mT), 1)
   P1 <- solve_dlyap_iter(mT, as.matrix(mR %*% mQ %*% t(mR)))
@@ -1404,9 +1416,9 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
 #' It takes the output of the function VARMA of the MTS package
 #' and turns it into a varma object.
 #'
-#' @param mts_varma list returned by MTS::VARMA
+#' @param mts_varma list returned by MTS::VARMA.
 #'
-#' @returns A varma object
+#' @returns A varma object.
 #'
 #' @export
 convert_mts_varma <- function(mts_varma) {
@@ -1418,8 +1430,7 @@ convert_mts_varma <- function(mts_varma) {
       intercept = mts_varma$Ph0,
       ar = if (p>0) array(mts_varma$Phi, c(m, m, p)) else NULL,
       ma = if (q>0) -array(mts_varma$Theta, c(m, m, q)) else NULL,
-      cov = mts_varma$Sigma,
-
+      cov = mts_varma$Sigma
     ),
     class = "varma"
   )
@@ -1431,10 +1442,10 @@ convert_mts_varma <- function(mts_varma) {
 #' It takes the output of the function VARMA of the fable package
 #' and turns it into a varma object.
 #'
-#' @param mts_varma object returned by a code like
-#' `model(Y, VARIMA(vars(V1, V2, V3) ~ pdq(1, 0, 2), identification = "kronecker_indices"))`
+#' @param object object returned by a code like
+#' `model(Y, VARIMA(vars(V1, V2, V3) ~ pdq(1, 0, 2), identification = "kronecker_indices"))`.
 #'
-#' @returns A varma object
+#' @returns A varma object.
 #'
 #' @export
 convert_fable_varma <- function(object) {
@@ -1470,10 +1481,10 @@ convert_fable_varma <- function(object) {
 #' It uses the Lp norm to compute the distance between
 #' two IRFs (the order-0 IRF can be omitted)
 #'
-#' @param irf1 an array of dimensions m x m x max_lags containing an IRF
-#' @param irf2 an array of dimensions m x m x max_lags containing an IRF
-#' @param r positive number, order of the norm to be used (default is 2 -> Euclidean norm)
-#' @param omit_lag0 boolean, do not consider the IRFs at lag-0 (default TRUE)
+#' @param irf1 an array of dimensions m x m x max_lags containing an IRF.
+#' @param irf2 an array of dimensions m x m x max_lags containing an IRF.
+#' @param r positive number, order of the norm to be used (default is 2 -> Euclidean norm).
+#' @param omit_lag0 logical, do not consider the IRFs at lag-0 (default TRUE).
 #'
 #' @returns Distance between two IRFs (a positive number).
 #'
@@ -1483,11 +1494,7 @@ irf_distance <- function(irf1, irf2, r = 2, omit_lag0 = TRUE) {
   if (any(dim(irf1) != dim(irf2))) stop("the dimensions of the two IRF are different")
   if (length(dim(irf1)) != 3 || length(dim(irf2)) != 3) stop("irf1 and irf2 must be 3-dimensional arrays")
   di <- if (omit_lag0) irf1[,, -1] - irf2[,, -1] else irf1 - irf2
-  mean(
-    abs(
-      di
-    )^r
-  )^(1/r)
+  mean(abs(di)^r)^(1/r)
 }
 
 # Generate random stable VARMA parametrizations
@@ -1500,15 +1507,14 @@ irf_distance <- function(irf1, irf2, r = 2, omit_lag0 = TRUE) {
 #' modulus of the eigenvalues of the AR and MA companion matrices, ensuring
 #' stationarity and invertibility respectively.
 #'
-#' @param m An integer. The dimension of the time series process (m > 0).
-#' @param p An integer. The order of the autoregressive (AR) part (p >= 0).
-#' @param q An integer. The order of the moving average (MA) part (q >= 0).
-#' @param max_eig_ar A numeric value between 0 and 1. The desired maximum
+#' @param m integer with the dimension of the time series process (m > 0).
+#' @param p integer with the order of the autoregressive (AR) part (p >= 0).
+#' @param q integer with the order of the moving average (MA) part (q >= 0).
+#' @param max_eig_ar numeric value between 0 and 1 indicating the desired maximum
 #'   eigenvalue modulus for the AR companion matrix to ensure stationarity.
-#'   Defaults to 0.9.
-#' @param max_eig_ma A numeric value between 0 and 1. The desired maximum
+#' @param max_eig_ma numeric value between 0 and 1 with the desired maximum
 #'   eigenvalue modulus for the MA companion matrix to ensure invertibility.
-#'   Defaults to 0.9.
+#' @param dist function to generate the random coefficients.
 #'
 #' @return A list with two components:
 #' \describe{
@@ -1596,9 +1602,9 @@ rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
   # Return a named list with the results
   structure(
     list(
-    ar = ar,
-    ma = ma,
-    cov = diag(m)
+      ar = ar,
+      ma = ma,
+      cov = diag(m)
     ),
     class = "varma"
   )
@@ -1606,17 +1612,19 @@ rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
 
 #' logLik method for a varma object
 #'
-#' @param object a varma object
+#' @param object a varma object.
+#' @param ... not used.
 #'
-#' @returns a numeric scalar with the log-likelihood value and the
-#' attribute df with the model's degrees of freedom
+#' @returns A numeric scalar with the log-likelihood value and the
+#' attribute df with the model's degrees of freedom.
 #'
+#' @importFrom stats logLik
+#' @method logLik varma
 #' @export
-#'
-logLik.varma <- function(object) {
+logLik.varma <- function(object, ...) {
   if (is.null(object$loglik)) {
     warning("There is no log-likelihood in the varma object\n")
-    return(strucuture(NA, df = NA))
+    return(structure(NA, df = NA))
   }
   structure(
     object$loglik,
@@ -1627,13 +1635,15 @@ logLik.varma <- function(object) {
 
 #' nobs method for a varma object
 #'
-#' @param object a varma object
+#' @param object a varma object.
+#' @param ... not used.
 #'
-#' @returns a numeric scalar with the number of observations
+#' @returns A numeric scalar with the number of observations.
 #'
+#' @importFrom stats nobs
+#' @method nobs varma
 #' @export
-#'
-nobs.varma <- function(object) {
+nobs.varma <- function(object, ...) {
   if (is.null(object$nobs)) {
     warning("There is no informatoin about the number of observations in the varma object")
     return(NA)
@@ -1647,14 +1657,17 @@ nobs.varma <- function(object) {
 #' The varma object has to be estimated using some of the methods
 #' in this package.
 #'
-#' @param object A varma object with the estimated model
-#' @param n.ahead Forecast horizon
-#' @param cov Logic: if TRUE the covariance matrices of the forecasts are produced
+#' @param object a varma object with the estimated model.
+#' @param n.ahead integer forecast horizon.
+#' @param cov logical, if TRUE the covariance matrices of the forecasts are produced.
+#' @param ... not used.
 #'
 #' @returns If `cov = FALSE`, a matrix with the forecasts, if `cov = TRUE`
 #' a list with the slot `mean`, containing a matrix with the point forecasts and
 #' the slot `cov` with a 3D array with the cvariance matrices of the forecasts.
 #'
+#' @importFrom stats predict
+#' @method predict varma
 #' @export
 predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
   if (is.null(object$estimation_method)) stop("This varma object was not estimated on data")
@@ -1752,29 +1765,23 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
 #' of an estimated varma. A function (usually a fit_varma function) is applied
 #' to the simulated sample paths.
 #'
-#' @param varma A varma object containing residuals
-#' @param nsim Number of sample paths to simulate (default: 100)
-#' @param n length of the time series (default: the `n` in the varma object)
-#' @param resid_to_skip How many initial residuals to drop because
-#' they may have a very large variance (default: 5)
-#' @param fit_fn Function to apply to every simulated path: it is usually a
+#' @param varma a varma object containing residuals.
+#' @param nsim number of sample paths to simulate (default: 100).
+#' @param n length of the time series (default: the `n` in the varma object).
+#' @param resids_to_skip non-negative integer witht he number of initial residuals to drop because
+#' they may have a very large variance (default: 5).
+#' @param fit_fn function to apply to every simulated path: it is usually a
 #' `fit_varma_???` function (default: the function that generated the estimates
-#' in the varma object)
-#' @param ... Other parameters to be passed to `fit_fn`
+#' in the varma object).
+#' @param ... other parameters to be passed to `fit_fn`.
+#' @param parallel logical, if TRUE, parallel processing is used (default: FALSE).
+#' @param n_cores number of cores for parallel processing. If NULL, uses
+#'   parallel::detectCores() - 1 (default: NULL).
 #'
 #' @return A list with `nsim` slots containing the applications of the
 #' function `fit_fn` to the simulated sample paths.
-#'
 #' @export
-#' Simulate from an estimated varma by bootstrapping residuals
-#'
-#' ... (rest of your documentation) ...
-#' @param parallel Logical, if TRUE, parallel processing is used (default: FALSE).
-#' @param n_cores Number of cores for parallel processing. If NULL, uses
-#'   parallel::detectCores() - 1 (default: NULL).
-#' @return A list with `nsim` slots ...
-#' @export
-boostrap_varma <- function(varma, nsim = 100, n = varma$n, resids_to_skip = 5,
+bootstrap_varma <- function(varma, nsim = 100, n = varma$n, resids_to_skip = 5,
                            fit_fn = get(varma$estimation_method), ...,
                            parallel = FALSE, n_cores = NULL) {
 
@@ -1884,15 +1891,20 @@ boostrap_varma <- function(varma, nsim = 100, n = varma$n, resids_to_skip = 5,
 #' It produces IRF plots from bootstrapped varma
 #' estimates produced by `bootstrap_varma()`.
 #'
-#' @param varma_list The list of bootstrapped varma objects
-#' generated by `bootstrap_varma()`
-#' @param maxlag The maximum lag of the IRF
-#' @param probs A vector with two values between 0 and 1 representing
-#' the percentiles to be represented by the fan in the plot
-#' @param ... Other parameters to be passed to the `irf()` function
+#' @param varma_list the list of bootstrapped varma objects
+#' generated by `bootstrap_varma()`.
+#' @param maxlag the maximum lag of the IRF.
+#' @param orth orthogonalization method.
+#' @param title title for the plot (default: NULL, that is, no title).
+#' @param probs a vector with two values between 0 and 1 representing.
+#' the percentiles to be represented by the fan in the plot.
+#' @param varnames names of the variables (default: y1, y2, ...).
+#' @param ... other parameters to be passed to the `irf()` function.
 #'
 #' @returns Nothing: it produces plots.
 #'
+#' @importFrom graphics abline lines mtext par points polypath
+#' @importFrom grDevices rgb
 #' @export
 booted_irf <- function(varma_list, maxlag = 10,
                        orth = c("none", "cholesky", "spectral", "generalized"),
@@ -1916,7 +1928,7 @@ booted_irf <- function(varma_list, maxlag = 10,
       rng <- quantile(a4[i, j, , ], c(0.01, 0.99))
       plot(0:maxlag, rep(0, maxlag + 1), type = "l", lty = 2,
            xlab = "", ylab = "",
-           main = paste(varnames[j], "→", varnames[i]),
+           main = paste(varnames[j], "\u8594", varnames[i]),
            ylim = rng)
       polypath(x = c(0:maxlag, maxlag:0),
                y = c(apply(a4[i, j, , ], 1, quantile, probs = probs[1]),
