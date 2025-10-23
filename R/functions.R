@@ -441,12 +441,10 @@ sim_varma <- function(varma, n = 200, burn_in = 100, var_in_rows = FALSE) {
   }
   # simulate Gaussian WN with the right covariance matrix
   if (!is.null(varma$chol_cov)) {
-    # eps <- t(varma$chol_cov) %*% matrix(rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in)
-    eps <- crossprod(varma$chol_cov, matrix(rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in))
+    eps <- crossprod(varma$chol_cov, matrix(stats::rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in))
   } else {
     P <- chol(varma$cov)
-    # eps <- t(P) %*% matrix(rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in)
-    eps <- crossprod(P, matrix(rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in))
+    eps <- crossprod(P, matrix(stats::rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in))
   }
   if (!is.null(varma$intercept)) {
     eps <- eps + varma$intercept
@@ -811,7 +809,7 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
   if (q > 0) reg_names <- c(reg_names, paste(paste0("e", 1:m), rep(1:q, each = m), sep = "_"))
   # pure VAR
   if (q < 1) {
-    X <- if (intercept) cbind(1, embed(Y, p+1)[, -(1:m)]) else embed(Y, p+1)[, -(1:m)]
+    X <- if (intercept) cbind(1, stats::embed(Y, p+1)[, -(1:m)]) else stats::embed(Y, p+1)[, -(1:m)]
     reg1 <- stats::lm.fit(X, Y[-(1:p),])
     reg1$n_iter <- 0
     dimnames(reg1$coefficients) <- list(
@@ -853,13 +851,13 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
     }
   }
   # initial VAR with order = (p+q)
-  X <- if (intercept) cbind(1, embed(Y, r+1)[, -(1:m)]) else embed(Y, r+1)[, -(1:m)]
+  X <- if (intercept) cbind(1, stats::embed(Y, r+1)[, -(1:m)]) else stats::embed(Y, r+1)[, -(1:m)]
   m1 <- stats::lm.fit(X, Y[-(1:r),])
   E <- rbind(matrix(0, r, m), m1$residuals)
   # main iterations
   for (it in 1:maxit) {
-    Ylag <- if (p > 0) embed(Y, p+1)[, -(1:m)] else NULL
-    Elag <- rbind(matrix(0, q, m*q), embed(E, q+1)[, -(1:m)])[(p+1):n, ]
+    Ylag <- if (p > 0) stats::embed(Y, p+1)[, -(1:m)] else NULL
+    Elag <- rbind(matrix(0, q, m*q), stats::embed(E, q+1)[, -(1:m)])[(p+1):n, ]
     if (intercept) X = cbind(1, Ylag, Elag) else X = cbind(Ylag, Elag)
     if (it > 1) reg0 <- reg1
     reg1 <- stats::lm.fit(X, Y[(p+1):n, ])
@@ -1235,7 +1233,7 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
   # residual covariance matrix part
   inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
   # estimates
-  optout <- optim(inits, obj, method = "BFGS")
+  optout <- stats::optim(inits, obj, method = "BFGS")
   ssout  <- final_run(optout$par)
   if (ret == "ss") {
     ssout
@@ -1368,7 +1366,7 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
   # residual covariance matrix part
   inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
   # estimates
-  ssfit <- optim(inits, obj, method = "BFGS")
+  ssfit <- stats::optim(inits, obj, method = "BFGS")
   mat_at <- matrix(a1, nrow(mT), n+1)
   array_Pt <- array(P1, c(nrow(mT), nrow(mT), n+1))
   mat_v <- matrix(0, m, n)
@@ -1537,7 +1535,7 @@ irf_distance <- function(irf1, irf2, r = 2, omit_lag0 = TRUE) {
 #' mod <- rvarma(m = 3, p = 2, q = 2, max_eig_ar = 0.95, max_eig_ma = 0.95)
 #'
 rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
-                   dist = function(n) runif(n, -1, 1)) {
+                   dist = function(n) stats::runif(n, -1, 1)) {
 
   #-----------------------------------------------------------------------------
   # Internal helper function to generate coefficients for one part (AR or MA)
@@ -1696,8 +1694,8 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
       for (i in 1:min(q, n.ahead)) {
         yhat[i, ] <- yhat[i, ] + elag %*% Mt
         if (q > 1) {
-          elag <- head(elag, m*(q-i))
-          Mt   <- tail(Mt, m*(q-i))
+          elag <- utils::head(elag, m*(q-i))
+          Mt   <- utils::tail(Mt, m*(q-i))
         }
       }
       if ((p < 1) && !is.null(object$intercept)) yhat <- yhat + rep(object$intercept, each = n.ahead)
@@ -1922,20 +1920,20 @@ booted_irf <- function(varma_list, maxlag = 10,
              mar = c(2, 2, 2, 0.5),
              oma = c(1, 1, 2, 1)
   )
-  mycol <- rgb(0, 0, 255, max = 255, alpha = 70)
+  mycol <- rgb(0, 0, 255, maxColorValue = 255, alpha = 70)
   for (i in 1:mpq[1]) {
     for (j in 1:mpq[1]) {
-      rng <- quantile(a4[i, j, , ], c(0.01, 0.99))
+      rng <- stats::quantile(a4[i, j, , ], c(min(0.01, probs[1]), max(0.99, probs[2])))
       plot(0:maxlag, rep(0, maxlag + 1), type = "l", lty = 2,
            xlab = "", ylab = "",
            main = paste(varnames[j], "\u8594", varnames[i]),
            ylim = rng)
       polypath(x = c(0:maxlag, maxlag:0),
-               y = c(apply(a4[i, j, , ], 1, quantile, probs = probs[1]),
-                     apply(a4[i, j, , ], 1, quantile, probs = probs[2])[(maxlag+1):1]),
+               y = c(apply(a4[i, j, , ], 1, stats::quantile, probs = probs[1]),
+                     apply(a4[i, j, , ], 1, stats::quantile, probs = probs[2])[(maxlag+1):1]),
                col = mycol,
                border = NA)
-      lines(0:maxlag, apply(a4[i, j, , ], 1, median), col = "blue")
+      lines(0:maxlag, apply(a4[i, j, , ], 1, stats::median), col = "blue")
       if (!is.null(gen)) {
         points(0:maxlag, irf_gen[i, j, ], pch = 20)
       }
