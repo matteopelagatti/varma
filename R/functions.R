@@ -408,9 +408,10 @@ irf <- function(varma, maxlag = 10,
       for (j in 1:mpq[1]) {
         plot(0:maxlag, psi[i, j, ], type = "p", pch = 20,
              xlab = "", ylab = "",
-             main = paste(varnames[j], "\u8594", varnames[i]),
+             main = paste(varnames[j], "\u2192", varnames[i]),
              ylim = c(min(psi), max(psi)))
         lines(0:maxlag, psi[i, j, ], col = "blue")
+        abline(h = 0, lty = 2)
       }
     }
     if (!is.null(title)) mtext(title, side = 3, outer = TRUE)
@@ -956,6 +957,8 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
                           sur = TRUE,
                           maxdiff = 1.0e-5, maxit = 100,
                           r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          parallel = FALSE,
+                          n_cores = NULL,
                           ret = c("varma", "regression")) {
   fn_name <- as.character(sys.call()[[1]]) # function name
   # input controls
@@ -982,9 +985,9 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
                                      relax = relax,
                                      gamma = gamma)
   }
-  coeff <- sapply(regreg, function(reg) as.numeric(glmnet::coef.glmnet(reg)))
+  coeff <- sapply(regreg, function(reg) as.numeric(coef(reg)))
   dimnames(coeff) <- dimnames(ihr$coefficients)
-  fitted <- sapply(regreg, function(reg) glmnet::predict.glmnet(reg, newx = X))
+  fitted <- sapply(regreg, function(reg) predict(reg, newx = X))
   resid  <- if (p>0) Y[-(1:p), ] - fitted else Y - fitted
   res_cov <- crossprod(resid)/nrow(X)
   nobs <- sum(!is.na(Y))
@@ -1823,8 +1826,12 @@ bootstrap_varma <- function(varma, nsim = 100, n = varma$n, resids_to_skip = 5,
       n_cores <- parallel::detectCores() - 1
     }
 
-    # Set the parallel plan; multisession works on all OSes (Win, Mac, Linux)
-    future::plan(future::multisession, workers = n_cores)
+    # Set the parallel plan conditionally based on OS
+    if (.Platform$OS.type == "windows") {
+      future::plan(future::multisession, workers = n_cores)  # Fallback for Windows
+    } else {
+      future::plan(future::multicore, workers = n_cores)     # Preferred for Linux/macOS
+    }
 
     # Ensure the user's original plan is restored when the function exits
     on.exit(future::plan(future::sequential), add = TRUE)
@@ -1931,7 +1938,7 @@ booted_irf <- function(varma_list, maxlag = 10,
       rng <- stats::quantile(a4[i, j, , ], c(min(0.01, probs[1]), max(0.99, probs[2])))
       plot(0:maxlag, rep(0, maxlag + 1), type = "l", lty = 2,
            xlab = "", ylab = "",
-           main = paste(varnames[j], "\u8594", varnames[i]),
+           main = paste(varnames[j], "\u2192", varnames[i]),
            ylim = rng)
       polypath(x = c(0:maxlag, maxlag:0),
                y = c(apply(a4[i, j, , ], 1, stats::quantile, probs = probs[1]),

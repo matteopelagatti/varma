@@ -17,6 +17,8 @@ fit_varma_net(
   maxdiff = 1e-05,
   maxit = 100,
   r = max(p + q, round(nrow(Y)/(4 * ncol(Y)))),
+  parallel = FALSE,
+  n_cores = NULL,
   ret = c("varma", "regression")
 )
 }
