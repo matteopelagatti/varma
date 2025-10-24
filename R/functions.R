@@ -1,3 +1,8 @@
+#' @useDynLib varma, .registration = TRUE
+#' @import Rcpp
+NULL
+
+
 #' varma object class
 #'
 #' This constructor function has been created just to illustrate the structure

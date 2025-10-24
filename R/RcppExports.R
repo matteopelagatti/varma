@@ -2,34 +2,34 @@
 # Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 irf_varma_rcpp <- function(A_cube, M_cube, P, horizon) {
-    .Call('_varma_irf_varma_rcpp', PACKAGE = 'varma', A_cube, M_cube, P, horizon)
+    .Call(`_varma_irf_varma_rcpp`, A_cube, M_cube, P, horizon)
 }
 
 sim_varma_rcpp <- function(A, M, eps) {
-    .Call('_varma_sim_varma_rcpp', PACKAGE = 'varma', A, M, eps)
+    .Call(`_varma_sim_varma_rcpp`, A, M, eps)
 }
 
 solve_riccati <- function(T, R, Q) {
-    .Call('_varma_solve_riccati', PACKAGE = 'varma', T, R, Q)
+    .Call(`_varma_solve_riccati`, T, R, Q)
 }
 
 solve_syl <- function(A, B, C) {
-    .Call('_varma_solve_syl', PACKAGE = 'varma', A, B, C)
+    .Call(`_varma_solve_syl`, A, B, C)
 }
 
 solve_dlyap_iter <- function(T, C, max_iter = 200L, tol = 1e-10) {
-    .Call('_varma_solve_dlyap_iter', PACKAGE = 'varma', T, C, max_iter, tol)
+    .Call(`_varma_solve_dlyap_iter`, T, C, max_iter, tol)
 }
 
 kalmanLogLik <- function(T, R, Q, a1, P1, Yt, update_state = FALSE) {
-    .Call('_varma_kalmanLogLik', PACKAGE = 'varma', T, R, Q, a1, P1, Yt, update_state)
+    .Call(`_varma_kalmanLogLik`, T, R, Q, a1, P1, Yt, update_state)
 }
 
 kalman <- function(T, R, Q, at, Pt, Yt, v, F, update_state = FALSE) {
-    .Call('_varma_kalman', PACKAGE = 'varma', T, R, Q, at, Pt, Yt, v, F, update_state)
+    .Call(`_varma_kalman`, T, R, Q, at, Pt, Yt, v, F, update_state)
 }
 
 sur_cpp <- function(X_list, y_list, sigma) {
-    .Call('_varma_sur_cpp', PACKAGE = 'varma', X_list, y_list, sigma)
+    .Call(`_varma_sur_cpp`, X_list, y_list, sigma)
 }
 
