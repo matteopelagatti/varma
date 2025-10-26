@@ -1473,6 +1473,7 @@ convert_fable_varma <- function(object) {
       n = nrow(y),
       nobs = nobs,
       npar = length(mod$fit$coef),
+      y = mod$fit$data,
       residuals = mod$fit$residuals
     ),
     class = "varma"
