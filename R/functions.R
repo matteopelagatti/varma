@@ -1057,6 +1057,7 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
 #'
 #' @returns If ret = "varma" a varma object, otherwise a SSModel object from the KFAS package.
 #'
+#' @importFrom KFAS SSMcustom SSModel fitSSM KFS
 #' @export
 fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
                            maxit = 100, ret = c("varma", "kfas")) {
@@ -1078,9 +1079,9 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
   a1 <- matrix(0, nrow(mT), 1)
   P1 <- solve_dlyap_iter(Matrix::Matrix(mT, sparse = TRUE), mR %*% tcrossprod(mQ, mR))
   P1inf <- matrix(0, mr, mr)
-  mod <- KFAS::SSModel(
-    Y ~ 0 + KFAS::SSMcustom(Z = mZ, T = mT, R = mR, Q = mQ, a1 = a1,
-                            P1 = P1, P1inf = P1inf),
+  mod <- SSModel(
+    Y ~ 0 + SSMcustom(Z = mZ, T = mT, R = mR, Q = mQ, a1 = a1,
+                      P1 = P1, P1inf = P1inf, index = 1:m),
     H = matrix(0, m, m)
   )
   # update function
@@ -1120,9 +1121,9 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
   # residual covariance matrix part
   inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
   # estimates
-  ssfit <- KFAS::fitSSM(mod, inits, updt, method = "BFGS")
+  ssfit <- fitSSM(mod, inits, updt, method = "BFGS")
   ssmod <- updt(ssfit$optim.out$par, ssfit$model)
-  ssflt <- KFAS::KFS(ssmod, filtering = "state", smoothing = "none")
+  ssflt <- KFS(ssmod, filtering = "state", smoothing = "none")
   if (ret == "kfas") return(ssfit)
   if (intercept) cnst <- ssfit$optim.out$par[1:m] else cnst <- NULL
   if (p > 0) {
@@ -1306,7 +1307,7 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
   mR <- Matrix::Matrix(ss$R, sparse = TRUE) # sparse R
   mQ <- ss$Q
   a1 <- matrix(0, nrow(mT), 1)
-  P1 <- solve_dlyap_iter(mT, as.matrix(mR %*% mQ %*% t(mR)))
+  P1 <- solve_dlyap_iter(mT, as.matrix(mR %*% Matrix::tcrossprod(mQ, mR)))
   P1 <- (P1 + t(P1))/2
   Pt <- matrix(0, m, m)
   # Objective function
@@ -1351,9 +1352,6 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
            y,
            mat_v,
            array_F)
-    # return(list(loglik = kalmanLogLik(mT, mR, mQ, a1, P1, y, TRUE),
-    #             a = a1,
-    #             P = P1))
   }
 
   # initial values from fit_varma_ihr
@@ -1411,7 +1409,7 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
       state_pred_mean = mat_at[, n+1],
       state_pred_cov  = array_Pt[,, n+1],
       transition_matrix = as.matrix(mT),
-      disturbance_cov = as.matrix(mR %*% tcrossprod(mQ, mR))
+      disturbance_cov = as.matrix(mR %*% Matrix::tcrossprod(mQ, mR))
     ),
     class = "varma"
   )
