@@ -995,8 +995,8 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
   if (sur) { # SUR step if required
     not_zero <- (estim != 0)
     if (intercept) X <- cbind(1, X)
-    ylist <- lapply(1:m, function(i) if (p>0) Y[-(1:p), i] else Y[, i])
-    xlist <- lapply(1:m, function(i) X[, not_zero[i, ]])
+    ylist <- lapply(1:m, function(i) if (p>0) Y[-(1:p), i, drop = FALSE] else Y[, i, drop = FALSE])
+    xlist <- lapply(1:m, function(i) X[, not_zero[i, ], drop = FALSE])
     beta  <- sur_cpp(xlist, ylist, res_cov)
     for (i in 1:m) {
       coeff[t(not_zero)] <- beta
@@ -1079,7 +1079,8 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
   P1 <- solve_dlyap_iter(Matrix::Matrix(mT, sparse = TRUE), mR %*% tcrossprod(mQ, mR))
   P1inf <- matrix(0, mr, mr)
   mod <- KFAS::SSModel(
-    Y ~ 0 + KFAS::SSMcustom(mZ, mT, mR, mQ, a1, P1, P1inf),
+    Y ~ 0 + KFAS::SSMcustom(Z = mZ, T = mT, R = mR, Q = mQ, a1 = a1,
+                            P1 = P1, P1inf = P1inf),
     H = matrix(0, m, m)
   )
   # update function
