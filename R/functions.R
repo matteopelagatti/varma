@@ -1221,7 +1221,7 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
     c(FKF.SP::fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
            Tt = mT, Zt = mZ, HHt = HH, GGt = mGGt, yt = y,
            verbose = TRUE),
-      list(HH = HH)
+      list(HH = HH, R = mR, Q = mQ)
     )
   }
   # initial values from fit_varma_ihr
@@ -1251,18 +1251,18 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
     if (intercept) cnst <- optout$par[1:m] else cnst <- NULL
     if (p > 0) {
       array_ar <- array(0, c(m, m, p))
-      for (i in 1:p) array_ar[,,i] <- mT[((i-1)*m+1):(i*m), 1:m]
+      for (i in 1:p) array_ar[,,i] <- ssout$Tt[((i-1)*m+1):(i*m), 1:m, 1]
     } else array_ar <- NULL
     if (q > 0) {
       array_ma <- array(0, c(m, m, q))
-      for (i in 1:q) array_ma[,,i] <- mR[(i*m+1):((i+1)*m), 1:m]
+      for (i in 1:q) array_ma[,,i] <- ssout$R[(i*m+1):((i+1)*m), 1:m]
     } else array_ma <- NULL
     structure(
       list(
         mean = cnst,
         ar = array_ar,
         ma = array_ma,
-        cov = mQ,
+        cov = ssout$Q,
         estimation_method = fn_name,
         loglik = -optout$value,
         nobs = sum(!is.na(Y)),
