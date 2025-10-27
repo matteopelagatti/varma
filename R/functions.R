@@ -1465,7 +1465,7 @@ convert_fable_varma <- function(object) {
     list(
       intercept = if (mod$fit$cnst) mod$fit$const else NULL,
       ar = if (is.null(mod$fit$Phi)) NULL else array(mod$fit$Phi,   c(m, m, ncol(mod$fit$Phi)/m)),
-      ma = if (is.null(mod$fit$Theta)) NULL else array(mod$fit$Theta, c(m, m, ncol(mod$fit$Theta)/m)),
+      ma = if (is.null(mod$fit$Theta)) NULL else array(-mod$fit$Theta, c(m, m, ncol(mod$fit$Theta)/m)),
       cov = mod$fit$Sigma,
       estimation_method = paste0("fable_varima_", mod$fit$identification),
       loglik = - (nobs / 2) * (log(2 * pi) + 1) -
