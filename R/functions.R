@@ -346,7 +346,6 @@ is_identified <- function(varma, tol = 1e-5) {
   )$rank < mpq[1]) return(FALSE)
   ir <- inv_roots(varma, c("ar", "ma"))
   dif <- outer(ir$ar, ir$ma, function(x, y) Mod(x - y))
-  diag(dif) <- Inf
   if (all(dif > tol)) TRUE else FALSE
 }
 
