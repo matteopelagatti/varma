@@ -381,8 +381,8 @@ double kalman(const arma::sp_mat& T,
 //' generalized least squares using a given covariance matrix
 //' of regression errors.
 //'
-//' @param X_list list of y-vectors with dependent variables
-//' @param y_list list of X-matrices with regressors
+//' @param X_list list of X-matrices with dependent variables
+//' @param y_list list of y-vectors with regressors
 //' @param sigma covariance matrix of regression errors
 //'
 //' @returns A vector of regression coefficients.
@@ -450,5 +450,49 @@ arma::vec sur_cpp(const Rcpp::List& X_list,
   arma::vec beta_hat = arma::solve(LHS, RHS);
 
   return beta_hat;
+}
+
+//' VAR filter
+//'
+//' It computes the VAR filter on a given \eqn{n \times n} matrix containing $n$ time
+//' points of a multivariate $m$-dimensional time series:
+//' \eqn{y_t = x_t + A_1 y_{t-1} + \ldots A_p y_{t-p}},
+//' where \eqn{x_t} is a column vector extracted from the \eqn{t}-th row of X and transposed.
+//' The recursion is started using the vectors in the \eqn{p \times m} matrix.
+//'
+//' @param X \eqn{n \times m} matrix with the multivariate time series to filter.
+//' @param A \eqn{p}-dimensional array with the \eqn{m\times m} matrices of VAR coefficients.
+//' @param Y0 \eqn{p \times m} matrix with the $p$ starting observations to initialise the recursion.
+//'
+//' @returns A \eqn{n \times m} matrix with the filtered multivariate time series.
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+arma::mat var_filter(const arma::mat& X, const arma::cube& A, Rcpp::Nullable<arma::mat> Y0 = R_NilValue) {
+  int n = X.n_rows;
+  int m = X.n_cols;
+  int p = A.n_slices;
+
+  arma::mat Y_init;
+  if (Y0.isNotNull()) {
+    Y_init = Rcpp::as<arma::mat>(Y0);
+    if (Y_init.n_rows != static_cast<arma::uword>(p) || Y_init.n_cols != static_cast<arma::uword>(m)) {
+      Rcpp::stop("Y0 must be a p x m matrix");
+    }
+  } else {
+    Y_init = arma::zeros(p, m);
+  }
+
+  arma::mat Y(n, m);
+  Y.rows(0, p - 1) = Y_init;
+
+  for (int t = p; t < n; ++t) {
+    arma::rowvec yt = X.row(t);
+    for (int k = 0; k < p; ++k) {
+      yt += Y.row(t - 1 - k) * A.slice(k).t();
+    }
+    Y.row(t) = yt;
+  }
+
+  return Y;
 }
 

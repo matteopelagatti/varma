@@ -777,6 +777,164 @@ autocov_mc <- function(varma, maxlag = 10) { # based on Tucker McElroy's code
   return(gamARMA)
 }
 
+#' VARMA estimation in Diagonal MA form using the method of Dufoura and Pelletierc
+#'
+#' @param Y a (n x m) matrix with the time series.
+#' @param p order of the AR part.
+#' @param q order of the MA part.
+#' @param intercept logical, if TRUE, the model includes an intercept.
+#' @param r integer order of the first step VAR(r) model.
+#' @param ret a character string indicating the type of output: "varma" or "regression".
+#'
+#' @returns If ret = "varma" a varma object, otherwise a list with the following elements:
+#' coefficients, matrix of residuals, fitted.values, effects, weights, rank,
+#' df.residual, qr, n_iter, res_cov.
+#'
+#' @export
+fit_varma_dma <- function(Y, p=1, q=1, intercept = TRUE,
+                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          ret = c("varma", "regression")) {
+  fn_name <- as.character(sys.call()[[1]]) # name of the function
+  # input controls
+  if (p < 0) stop("p must be non-negative")
+  if (q < 0) stop("q must be non-negative")
+  if (p == 0 & q == 0) {"p = q = 0: no VARMA model specified"}
+  ret <- match.arg(ret)
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  # basic quantities and variable names
+  m <- ncol(Y)
+  n <- nrow(Y)
+  reg_names <- NULL
+  if (intercept) reg_names <- "cnst"
+  if (p > 0) reg_names <- c(reg_names, paste(paste0("y", 1:m), rep(1:p, each = m), sep = "_"))
+  if (q > 0) reg_names <- c(reg_names, paste(paste0("e", 1:m), rep(1:q, each = m), sep = "_"))
+  # pure VAR
+  if (q < 1) {
+    X <- if (intercept) cbind(1, stats::embed(Y, p+1)[, -(1:m)]) else stats::embed(Y, p+1)[, -(1:m)]
+    reg1 <- stats::lm.fit(X, Y[-(1:p),])
+    reg1$n_iter <- 0
+    dimnames(reg1$coefficients) <- list(
+      reg_names,
+      paste0("y", 1:m)
+    )
+    reg1$res_cov <- crossprod(reg1$residuals, reg1$residuals)/reg1$df.residual
+    if (ret == "reg") {
+      return(reg1)
+    } else {
+      estim <- t(reg1$coefficients)
+      if (intercept) {
+        cnst  <- estim[,  1]
+        estim <- estim[, -1]
+      } else {
+        cnst <- NULL
+      }
+      ar_array <- array(estim[, 1:(p*m)], c(m, m, p))
+      nobs <- prod(dim(reg1$residuals))
+      return(
+        structure(
+          list(
+            intercept = cnst,
+            ar = ar_array,
+            ma = NULL,
+            cov = reg1$res_cov,
+            estimation_method = fn_name,
+            loglik = - (nobs / 2) * (log(2 * pi) + 1) -
+              (nrow(reg1$residuals) / 2) * determinant(reg1$res_cov, logarithm = TRUE)$modulus,
+            n = n,
+            nobs = nobs,
+            npar = length(reg1$coefficients),
+            y = Y,
+            residuals = reg1$residuals
+          ),
+          class = "varma"
+        )
+      )
+    }
+  }
+  # VARMA in Diagonal MA form
+  # 1st step: initial VAR(r)
+  X <- if (intercept) cbind(1, stats::embed(Y, r+1)[, -(1:m)]) else stats::embed(Y, r+1)[, -(1:m)]
+  m1 <- stats::lm.fit(X, Y[-(1:r),])
+  E <- rbind(matrix(0, r, m), m1$residuals)
+  Ylag <- if (p > 0) stats::embed(Y, p+1)[, -(1:m)] else NULL
+  Elag <- rbind(matrix(0, q, m*q), stats::embed(E, q+1)[, -(1:m)])[(p+1):n, ]
+  # 2nd step: SUR estimation
+  Y_list <- as.list(as.data.frame(Y[-(1:p), ]))
+  X_list <- if (intercept) {
+    lapply(1:m, function(i) cbind(1, Ylag, Elag[, seq(i, q*m, m)]))
+  } else {
+    lapply(1:m, function(i) cbind(Ylag, Elag[, seq(i, q*m, m)]))
+  }
+  S <- crossprod(m1$residuals, m1$residuals)/n
+  sur_est <- sur_cpp(X_list, Y_list, S)
+  B <- matrix(sur_est, ncol = m) # each column has the estimates for each time series
+  # 3rd step
+  # Compute new residuals
+  Etilde <- rbind(matrix(0, p, m),
+    sapply(1:m, function(j) Y[-(1:p), j] - X_list[[j]] %*% B[, j])
+  )
+  SS <- crossprod(Etilde)/n
+  # Compute filtered series
+  Theta <- apply(-tail(B, q), 1, diag) |> array(c(m, m, q))
+  YY <- var_filter(Y, Theta)
+  W  <- var_filter(Etilde, Theta)
+  YYlag <- if (p > 0) stats::embed(YY, p+1)[, -(1:m)] else NULL
+  EElag <- rbind(matrix(0, q, m*q), stats::embed(Etilde, q+1)[, -(1:m)])[(p+1):n, ]
+  YY_list <- as.list(as.data.frame((Etilde + YY - W)[-(1:p), ]))
+  XX_list <- if (intercept) {
+    lapply(1:m, function(i) cbind(1, YYlag, EElag[, seq(i, q*m, m)]))
+  } else {
+    lapply(1:m, function(i) cbind(YYlag, EElag[, i]))
+  }
+  sur_est2 <- sur_cpp(XX_list, YY_list, SS)
+  BB <- matrix(sur_est2, ncol = m) # each column has the estimates for each time series
+  # Compute new residuals
+  Efinal <- rbind(matrix(0, p, m),
+                  sapply(1:m, function(j) YY[-(1:p), j] - XX_list[[j]] %*% BB[, j])
+  )
+  SSS <- crossprod(Efinal)/n
+
+  if (ret == "varma") {
+    nobs <- length(Efinal) - p*m
+    if (intercept) {
+      ar_array <- BB[2:(1+m*p), , drop = FALSE] |> t() |> array(c(m, m, p))
+      ma_array <- BB[-(1:(1+m*p)), , drop = FALSE] |> t() |> apply(1, diag) |> array(c(m, m, q))
+    } else {
+      ar_array <- BB[1:(m*p), , drop = FALSE] |> t() |> array(c(m, m, p))
+      ma_array <- BB[-(1:(m*p)), , drop = FALSE] |> apply(1, diag) |> array(c(m, m, q))
+    }
+    structure(
+      list(
+        intercept = if (intercept) BB[1, ] else NULL,
+        ar = ar_array,
+        ma = ma_array,
+        cov = SSS,
+        estimation_method = fn_name,
+        loglik = - (nobs / 2) * (log(2 * pi) + 1) -
+          (nrow(Efinal) / 2) * determinant(SSS, logarithm = TRUE)$modulus,
+        n = nrow(Y),
+        nobs = nobs,
+        npar = length(BB),
+        y = Y,
+        residuals = Efinal
+      ),
+      class = "varma"
+    )
+  } else {
+    list(
+      step2_est = B,
+      step3_est = BB,
+      step2_cov = SS,
+      step3_cov = SSS,
+      step2_resid = Etilde,
+      step3_resid = Efinal,
+      X = YY,
+      W = W,
+      Y_list = YY_list,
+      X_list = XX_list
+    )
+  }
+}
 
 #' VARMA estimation using the iterated Hannan-Rissanen method
 #'
@@ -986,6 +1144,7 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
                                      gamma = gamma)
   }
   coeff <- sapply(regreg, function(reg) as.numeric(coef(reg)))
+  if (!intercept) coeff <- coeff[-1, ] # glmnet returns zero coeff also for the missing intercept
   dimnames(coeff) <- dimnames(ihr$coefficients)
   fitted <- sapply(regreg, function(reg) predict(reg, newx = X))
   resid  <- if (p>0) Y[-(1:p), ] - fitted else Y - fitted
@@ -1543,7 +1702,9 @@ irf_distance <- function(irf1, irf2, r = 2, omit_lag0 = TRUE) {
 #' mod <- rvarma(m = 3, p = 2, q = 2, max_eig_ar = 0.95, max_eig_ma = 0.95)
 #'
 rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
-                   dist = function(n) stats::runif(n, -1, 1)) {
+                   dist = function(n) stats::runif(n, -1, 1),
+                   max_try = 5) {
+  if (max_try <= 0) stop("VARMA generation failed")
 
   #-----------------------------------------------------------------------------
   # Internal helper function to generate coefficients for one part (AR or MA)
@@ -1606,7 +1767,7 @@ rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
   ma <- if (q > 0) .generate_coeffs(m_dim = m, order = q, max_eig_mod = max_eig_ma, dist = dist) else NULL
 
   # Return a named list with the results
-  structure(
+  out <- structure(
     list(
       ar = ar,
       ma = ma,
@@ -1614,6 +1775,12 @@ rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
     ),
     class = "varma"
   )
+  iroots <- inv_roots(out)
+  if (all(Mod(iroots$ar) < 1) && all(Mod(iroots$ma) < 1)) {
+    out
+  } else {
+    rvarma(m, p, q, max_eig_ar, max_eig_ma, dist, max_try = max_try - 1)
+  }
 }
 
 #' logLik method for a varma object

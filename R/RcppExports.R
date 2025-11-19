@@ -33,3 +33,7 @@ sur_cpp <- function(X_list, y_list, sigma) {
     .Call(`_varma_sur_cpp`, X_list, y_list, sigma)
 }
 
+var_filter <- function(X, A, Y0 = NULL) {
+    .Call(`_varma_var_filter`, X, A, Y0)
+}
+

@@ -127,6 +127,19 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// var_filter
+arma::mat var_filter(const arma::mat& X, const arma::cube& A, Rcpp::Nullable<arma::mat> Y0);
+RcppExport SEXP _varma_var_filter(SEXP XSEXP, SEXP ASEXP, SEXP Y0SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type A(ASEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<arma::mat> >::type Y0(Y0SEXP);
+    rcpp_result_gen = Rcpp::wrap(var_filter(X, A, Y0));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_varma_irf_varma_rcpp", (DL_FUNC) &_varma_irf_varma_rcpp, 4},
@@ -137,6 +150,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_kalmanLogLik", (DL_FUNC) &_varma_kalmanLogLik, 7},
     {"_varma_kalman", (DL_FUNC) &_varma_kalman, 9},
     {"_varma_sur_cpp", (DL_FUNC) &_varma_sur_cpp, 3},
+    {"_varma_var_filter", (DL_FUNC) &_varma_var_filter, 3},
     {NULL, NULL, 0}
 };
 
