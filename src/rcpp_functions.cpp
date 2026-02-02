@@ -496,3 +496,122 @@ arma::mat var_filter(const arma::mat& X, const arma::cube& A, Rcpp::Nullable<arm
   return Y;
 }
 
+
+//' Helper function for building the row of Z relative to the VAR part
+//'
+//' This function is common to the diagonal and final forms
+//'
+//' @param Y data matrix
+//' @param t time index
+//' @param p order of VAR part
+//' @param K number of time series
+//'
+//' @returns A row vector
+//'
+// [[Rcpp::depends(RcppArmadillo)]]
+rowvec get_var_regressors(const mat& Y, int t, int p, int K) {
+  rowvec reg(K * p, fill::zeros);
+  int count = 0;
+  for (int lag = 1; lag <= p; lag++) {
+    for (int k = 0; k < K; k++) {
+      reg(count) = Y(t - lag, k);
+      count++;
+    }
+  }
+  return reg;
+}
+
+//' Helper function for building the row of Z relative to the VMA part
+//'
+//' @param U matrix of VARMA innovations
+//' @param t time index
+//' @param q order of MA part
+//' @param k_eq MA equation to work on
+//'
+//' @returns A row vector
+ // [[Rcpp::depends(RcppArmadillo)]]
+ rowvec get_ma_regressors(const mat& U, int t, int q, int k_eq) {
+  rowvec reg(q);
+  for (int lag = 1; lag <= q; lag++) {
+    reg(lag - 1) = U(t - lag, k_eq); // it takes only the equation k_eq equation
+  }
+  return reg;
+}
+
+//' GLS estimation of VARMA using the diagonal MA or final MA form
+//'
+//' @param Y data matrix
+//' @param U innovation matrix
+//' @param SigmaU_inv inverse of the innovation covariance matrix
+//' @param p order of VAR part
+//' @param q order of VMA part
+//' @param type a string with one of the two choices "diagonal", "final"
+// [[Rcpp::export]]
+List estimate_varma_gls_cpp(mat Y, mat U, mat SigmaU_inv, int p, int q, String type) {
+  int T = Y.n_rows;
+  int K = Y.n_cols;
+  int n_obs_eff = T - std::max(p, q);
+  int t_start = std::max(p, q);
+
+  // phi and theta parameters dimensions
+  int n_params_phi = K * K * p; // VAR parameters
+  int n_params_theta = 0;       // VMA parameters if no VMA present
+
+  if (type == "diagonal") {
+    n_params_theta = K * q; // q parameters per equation (tot -> K*q)
+  } else if (type == "final") {
+    n_params_theta = q;     // q parameters common to all equations
+  }
+
+  int n_total_params = n_params_phi + n_params_theta;
+
+  // Matrices for the linear system A * gamma = b
+  mat A(n_total_params, n_total_params, fill::zeros);
+  vec b(n_total_params, fill::zeros);
+
+  // for loop on the time t
+  for (int t = t_start; t < T; t++) {
+
+    // Making the matrix Z_t (dimensions K x n_total_params)
+    mat Z_t(K, n_total_params, fill::zeros);
+
+    // Vector of VAR regressors (equal for all equations but in different positions)
+    rowvec var_regs = get_var_regressors(Y, t, p, K); // Dim K*p
+
+    for (int k = 0; k < K; k++) {
+      // 1. Insert VAR regressors in the right block
+      // The Phi parameters are ordere as [Phi_row1, Phi_row2, ...]
+      int start_col_phi = k * (K * p);
+      Z_t(k, span(start_col_phi, start_col_phi + (K * p) - 1)) = var_regs;
+
+      // 2. Insert the VMA regressors in the right block
+      if (type == "diagonal") {
+        // Each equation has its own theta parameters
+        // Order: [Theta_eq1, Theta_eq2, ...] after the Phi's
+        int start_col_theta = n_params_phi + k * q;
+        Z_t(k, span(start_col_theta, start_col_theta + q - 1)) =
+          get_ma_regressors(U, t, q, k);
+      } else if (type == "final") {
+        // The common theta parameters are at the end
+        // Order: [Theta_common] after the Phi's
+        int start_col_theta = n_params_phi;
+        // Note: for the Final MA, the regressor is the innovation of equation k
+        // but the coefficient is common to all equations.
+        Z_t(k, span(start_col_theta, start_col_theta + q - 1)) =
+          get_ma_regressors(U, t, q, k);
+      }
+    }
+
+    // Cumulate GLS: A += Z_t.t() * SigmaU_inv * Z_t
+    // Cumulate b:   b += Z_t.t() * SigmaU_inv * y_t
+    mat W = Z_t.t() * SigmaU_inv;
+    A += W * Z_t;
+    b += W * Y.row(t).t();
+  }
+
+  // Least squares solution
+  vec gamma_hat = solve(A, b);
+
+  return List::create(Named("coefficients") = gamma_hat,
+                      Named("A_matrix") = A); // Approx inverse Fisher information
+}
