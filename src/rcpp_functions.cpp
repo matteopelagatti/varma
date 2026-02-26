@@ -547,10 +547,10 @@ rowvec get_var_regressors(const mat& Y, int t, int p, int K) {
 //' @param q order of VMA part
 //' @param type a string with one of the two choices "diagonal", "final"
 // [[Rcpp::export]]
-List estimate_varma_gls_cpp(mat Y, mat U, mat SigmaU_inv, int p, int q, String type) {
+List estimate_varma_gls_cpp(arma::mat Y, arma::mat U, arma::mat SigmaU_inv,
+                            int p, int q, String type) {
   int T = Y.n_rows;
   int K = Y.n_cols;
-  int n_obs_eff = T - std::max(p, q);
   int t_start = std::max(p, q);
 
   // phi and theta parameters dimensions
@@ -614,4 +614,331 @@ List estimate_varma_gls_cpp(mat Y, mat U, mat SigmaU_inv, int p, int q, String t
 
   return List::create(Named("coefficients") = gamma_hat,
                       Named("A_matrix") = A); // Approx inverse Fisher information
+}
+
+
+//' Autocovariance function using Sbrana's formula
+//'
+//' @param ar_in a 3d-array with the p AR coefficient matrices
+//' @param ma_in a 3d-array with the q MA coefficient matrices
+//' @param cov covariance matrix of the innovations
+//' @param max_lag non-negative integer with max lag of the autocovariance function
+//'
+//' @returns A 3d array with the max_lag+1 autocovariance matrices
+// [[Rcpp::export]]
+arma::cube autocov_gs_cpp(Rcpp::Nullable<arma::cube> ar_in,
+                          Rcpp::Nullable<arma::cube> ma_in,
+                          arma::mat cov,
+                          int max_lag) {
+
+  // 1. Handle inputs safely to allow pure AR or pure MA models
+  int p = 0, q = 0;
+  arma::cube ar, ma;
+  if (ar_in.isNotNull()) { ar = Rcpp::as<arma::cube>(ar_in); p = ar.n_slices; }
+  if (ma_in.isNotNull()) { ma = Rcpp::as<arma::cube>(ma_in); q = ma.n_slices; }
+
+  int d = cov.n_rows;
+  int m = std::max(p, q + 1);
+  int num_lags = m + max_lag;
+
+  // 2. Compute Wold coefficients (Psi)
+  arma::cube psi(d, d, num_lags + 1, arma::fill::zeros);
+  psi.slice(0).eye();
+
+  for (int k = 1; k <= num_lags; k++) {
+    arma::mat psi_k(d, d, arma::fill::zeros);
+    if (k <= q) {
+      psi_k += ma.slice(k - 1);
+    }
+    if (p > 0) {
+      for (int i = 1; i <= std::min(k, p); i++) {
+        psi_k += ar.slice(i - 1) * psi.slice(k - i);
+    }
+  }
+    psi.slice(k) = psi_k;
+  }
+
+  // 3. Pre-compute elements for the persistent component
+  arma::cx_mat Y;
+  arma::cx_mat Z_V;
+  arma::cx_vec lambda;
+
+  if (p > 0) {
+    // Construct Companion Matrix F
+    arma::mat F_mat(d * p, d * p, arma::fill::zeros);
+    for (int i = 0; i < p; i++) {
+      F_mat.submat(0, i * d, d - 1, (i + 1) * d - 1) = ar.slice(i);
+    }
+    if (p > 1) {
+      F_mat.submat(d, 0, d * p - 1, d * (p - 1) - 1).eye();
+    }
+
+    // Construct Matrix G
+    arma::mat G(d * p, d, arma::fill::zeros);
+    for (int i = 1; i <= p; i++) {
+      int idx = m - i + 1;
+      G.submat((i - 1) * d, 0, i * d - 1, d - 1) = psi.slice(idx);
+    }
+
+    // Eigendecomposition
+    arma::cx_vec eigval;
+    arma::cx_mat V;
+    arma::eig_gen(eigval, V, F_mat);
+    lambda = eigval;
+
+    // Cast to complex for persistent equations
+    arma::cx_mat V_inv = arma::inv(V);
+    arma::cx_mat cG = arma::conv_to<arma::cx_mat>::from(G);
+    arma::cx_mat cCov = arma::conv_to<arma::cx_mat>::from(cov);
+
+    // Compute M using .st() for standard (non-conjugate) transpose
+    arma::cx_mat M = V_inv * cG * cCov * cG.st() * V_inv.st();
+
+    // Compute denominator: 1 - outer(lambda, lambda)
+    arma::cx_mat denom(d * p, d * p);
+    for(int r = 0; r < d * p; r++) {
+      for(int c = 0; c < d * p; c++) {
+        denom(r, c) = 1.0 - lambda(r) * lambda(c);
+      }
+    }
+    Y = M / denom;
+    Z_V = V.submat(0, 0, d - 1, d * p - 1);
+  }
+
+  // 4. Compute the Autocovariance sequence
+  arma::cube Gamma(d, d, max_lag + 1, arma::fill::zeros);
+
+  for (int h = 0; h <= max_lag; h++) {
+    // Finite memory sum (real numbers)
+    arma::mat finite_part(d, d, arma::fill::zeros);
+    for (int j = 0; j <= m - 1; j++) {
+      finite_part += psi.slice(j + h) * cov * psi.slice(j).t();
+    }
+
+    if (p > 0) {
+      // Persistent part logic
+      arma::cx_vec lam_h = arma::pow(lambda, h);
+      arma::cx_mat Y_h = Y;
+
+      // Multiply each row by lambda^h (matches R's vector-matrix recycling)
+      Y_h.each_col() %= lam_h;
+
+      arma::cx_mat persistent_part = Z_V * Y_h * Z_V.st();
+
+      // Combine and drop imaginary artifacts
+      Gamma.slice(h) = finite_part + arma::real(persistent_part);
+    } else {
+      Gamma.slice(h) = finite_part;
+    }
+  }
+
+  return Gamma;
+}
+
+// Tucker-McElroy Method
+// Helper function: Equivalent to Kcommut in R
+arma::mat Kcommut(const arma::vec& vect, int m, int n) {
+  arma::mat temp(const_cast<double*>(vect.begin()), m, n, false, true);
+  return arma::vectorise(temp.t());
+}
+
+
+// Helper function: Polynomial multiplication of matrices
+arma::cube polymulMat(const arma::cube& amat, const arma::cube& bmat) {
+  int p = amat.n_slices;
+  int q = bmat.n_slices;
+  int m = amat.n_rows;
+
+  arma::cube amatd(m, m, p);
+  for(int i = 0; i < p; ++i) {
+    amatd.slice(i) = amat.slice(p - 1 - i);
+  }
+
+  arma::cube amatd_ext(m, m, p + q - 1, arma::fill::zeros);
+  for(int i = 0; i < p; ++i) {
+    amatd_ext.slice(q - 1 + i) = amatd.slice(i);
+  }
+  amatd = amatd_ext;
+
+  arma::mat bigmat(m * (p + q - 1), m * (p + q - 1), arma::fill::zeros);
+  arma::cube current_amatd = amatd;
+
+  for(int i = 0; i < p + q - 1; ++i) {
+    arma::mat nextmat(m, m * (p + q - 1));
+    for(int j = 0; j < p + q - 1; ++j) {
+      nextmat.cols(j * m, (j + 1) * m - 1) = current_amatd.slice(j);
+    }
+
+    int row_idx = p + q - 2 - i;
+    bigmat.rows(row_idx * m, (row_idx + 1) * m - 1) = nextmat;
+
+    arma::cube next_amatd(m, m, p + q - 1, arma::fill::zeros);
+    for(int j = 0; j < p + q - 2; ++j) {
+      next_amatd.slice(j) = current_amatd.slice(j + 1);
+    }
+    current_amatd = next_amatd;
+  }
+
+  arma::mat bigmat_sub = bigmat.cols(0, m * q - 1);
+
+  arma::mat bmat_rev_mat(m, m * q);
+  for(int i = 0; i < q; ++i) {
+    bmat_rev_mat.cols(i * m, (i + 1) * m - 1) = bmat.slice(q - 1 - i);
+  }
+
+  // Multiply matrices
+  arma::mat out_mat = bigmat_sub * bmat_rev_mat.t();
+
+  // CORRECTED RESHAPE: Map row chunks directly to cube slices
+  arma::cube out(m, m, p + q - 1);
+  for(int slice = 0; slice < p + q - 1; ++slice) {
+    out.slice(slice) = out_mat.rows(slice * m, (slice + 1) * m - 1);
+  }
+
+  return out;
+}
+
+//' Autocovariance function using Tucker-McElroy method
+//'
+//' @param ar_in a 3d-array with the p AR coefficient matrices
+//' @param ma_in a 3d-array with the q MA coefficient matrices
+//' @param cov covariance matrix of the innovations
+//' @param max_lag non-negative integer with max lag of the autocovariance function
+//'
+//' @returns A 3d array with the max_lag+1 autocovariance matrices
+//'
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+arma::cube autocov_mc_cpp(const arma::cube& ar, const arma::cube& ma, const arma::mat& cov, int maxlag = 10) {
+  int m = cov.n_rows;
+  int p = ar.n_slices;
+  int q = ma.n_slices;
+  int m2 = m * m;
+
+  arma::mat Kmat(m2, m2);
+  arma::mat I_m2 = arma::eye(m2, m2);
+  for(int i = 0; i < m2; ++i) {
+    Kmat.col(i) = Kcommut(I_m2.col(i), m, m);
+  }
+
+  arma::cube gamMA;
+  if (q == 0) {
+    gamMA = arma::cube(m, m, 1);
+    gamMA.slice(0) = cov;
+  } else {
+    arma::cube MA_poly(m, m, q + 1);
+    MA_poly.slice(0) = arma::eye(m, m);
+    for(int i = 0; i < q; ++i) MA_poly.slice(i + 1) = ma.slice(i);
+
+    arma::cube cov_cube(m, m, 1);
+    cov_cube.slice(0) = cov;
+
+    arma::cube temp = polymulMat(MA_poly, cov_cube);
+    gamMA = polymulMat(temp, MA_poly);
+  }
+
+  arma::cube gamMA_sub(m, m, q + 1);
+  if(q == 0) {
+    gamMA_sub.slice(0) = gamMA.slice(0);
+  } else {
+    for(int i = 0; i <= q; ++i) gamMA_sub.slice(i) = gamMA.slice(q + i);
+  }
+  arma::vec gamMAvec = arma::vectorise(gamMA_sub);
+
+  arma::cube gamARMA_cube;
+  arma::cube gamMix_cube;
+
+  if (p > 0) {
+    std::vector<arma::mat> Arow_blocks(p + 1);
+    for(int i = 0; i < p; ++i) {
+      Arow_blocks[p - 1 - i] = -arma::kron(arma::eye(m, m), ar.slice(i));
+    }
+    Arow_blocks[p] = arma::eye(m2, m2);
+
+    auto get_B = [&](int r, int c) -> arma::mat {
+      if(c >= r && c <= r + p) return Arow_blocks[c - r];
+      return arma::zeros(m2, m2);
+    };
+
+    arma::mat Amat_final((p + 1) * m2, (p + 1) * m2, arma::fill::zeros);
+    for(int r = 0; r <= p; ++r) {
+      Amat_final.submat(r * m2, 0, (r + 1) * m2 - 1, m2 - 1) = get_B(r, p);
+      for(int k = 0; k < p; ++k) {
+        arma::mat block = get_B(r, p + 1 + k) + get_B(r, p - 1 - k) * Kmat;
+        Amat_final.submat(r * m2, (k + 1) * m2, (r + 1) * m2 - 1, (k + 2) * m2 - 1) = block;
+      }
+    }
+
+    arma::mat Bmat_final((q + 1) * m2, (q + 1) * m2, arma::fill::zeros);
+    for(int r = 0; r <= q; ++r) {
+      for(int c = r; c <= std::min(q, r + p); ++c) {
+        arma::mat block;
+        if(c - r == 0) block = arma::eye(m2, m2);
+        else block = -arma::kron(ar.slice(c - r - 1), arma::eye(m, m));
+        Bmat_final.submat(r * m2, c * m2, (r + 1) * m2 - 1, (c + 1) * m2 - 1) = block;
+      }
+    }
+
+    arma::vec gamMix = arma::solve(Bmat_final, gamMAvec);
+    arma::vec gamMixTemp;
+    if (p <= q) {
+      gamMixTemp = gamMix.subvec(0, (p + 1) * m2 - 1);
+    } else {
+      gamMixTemp = arma::zeros((p + 1) * m2);
+      gamMixTemp.subvec(0, gamMix.n_elem - 1) = gamMix;
+    }
+
+    arma::vec gamARMA_vec = arma::solve(Amat_final, gamMixTemp);
+
+    gamMix_cube = arma::cube(m, m, q + 1);
+    for(int i = 0; i <= q; ++i) gamMix_cube.slice(i) = arma::reshape(gamMix.subvec(i * m2, (i + 1) * m2 - 1), m, m);
+
+    gamARMA_cube = arma::cube(m, m, p + 1);
+    for(int i = 0; i <= p; ++i) gamARMA_cube.slice(i) = arma::reshape(gamARMA_vec.subvec(i * m2, (i + 1) * m2 - 1), m, m);
+
+  } else {
+    gamARMA_cube = arma::cube(m, m, 1);
+    gamARMA_cube.slice(0) = gamMA_sub.slice(0);
+    if (q == 0) {
+      gamMix_cube = arma::cube(m, m, 1);
+      gamMix_cube.slice(0) = cov;
+    } else {
+      gamMix_cube = arma::cube(m, m, q + 1);
+      for(int i = 0; i <= q; ++i) gamMix_cube.slice(i) = gamMA_sub.slice(i);
+    }
+  }
+
+  if (maxlag <= p) {
+    arma::cube temp_ARMA(m, m, maxlag + 1);
+    for(int i = 0; i <= maxlag; ++i) temp_ARMA.slice(i) = gamARMA_cube.slice(i);
+    gamARMA_cube = temp_ARMA;
+  } else {
+    if (maxlag > q) {
+      arma::cube temp_Mix(m, m, maxlag + 1, arma::fill::zeros);
+      for(int i = 0; i <= q; ++i) temp_Mix.slice(i) = gamMix_cube.slice(i);
+      gamMix_cube = temp_Mix;
+    }
+
+    for(int k = 1; k <= maxlag - p; ++k) {
+      int len = gamARMA_cube.n_slices;
+      arma::mat acf = gamMix_cube.slice(p + k);
+      if (p > 0) {
+        arma::mat temp_mat(m * p, m);
+        for(int i = 0; i < p; ++i) {
+          temp_mat.rows(i * m, (i + 1) * m - 1) = gamARMA_cube.slice(len - 1 - i);
+        }
+        arma::mat ar_mat(m, m * p);
+        for(int i = 0; i < p; ++i) {
+          ar_mat.cols(i * m, (i + 1) * m - 1) = ar.slice(i);
+        }
+        acf += ar_mat * temp_mat;
+      }
+      arma::cube new_ARMA(m, m, len + 1);
+      for(int i = 0; i < len; ++i) new_ARMA.slice(i) = gamARMA_cube.slice(i);
+      new_ARMA.slice(len) = acf;
+      gamARMA_cube = new_ARMA;
+    }
+  }
+
+  return gamARMA_cube;
 }

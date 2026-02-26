@@ -11,6 +11,20 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// compute_varma_acgf_cpp
+arma::cube compute_varma_acgf_cpp(Rcpp::Nullable<arma::cube> ar_in, Rcpp::Nullable<arma::cube> ma_in, arma::mat cov, int max_lag);
+RcppExport SEXP _varma_compute_varma_acgf_cpp(SEXP ar_inSEXP, SEXP ma_inSEXP, SEXP covSEXP, SEXP max_lagSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::Nullable<arma::cube> >::type ar_in(ar_inSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<arma::cube> >::type ma_in(ma_inSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type cov(covSEXP);
+    Rcpp::traits::input_parameter< int >::type max_lag(max_lagSEXP);
+    rcpp_result_gen = Rcpp::wrap(compute_varma_acgf_cpp(ar_in, ma_in, cov, max_lag));
+    return rcpp_result_gen;
+END_RCPP
+}
 // irf_varma_rcpp
 arma::cube irf_varma_rcpp(const arma::cube& A_cube, const arma::cube& M_cube, const arma::mat& P, int horizon);
 RcppExport SEXP _varma_irf_varma_rcpp(SEXP A_cubeSEXP, SEXP M_cubeSEXP, SEXP PSEXP, SEXP horizonSEXP) {
@@ -140,8 +154,53 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// estimate_varma_gls_cpp
+List estimate_varma_gls_cpp(arma::mat Y, arma::mat U, arma::mat SigmaU_inv, int p, int q, String type);
+RcppExport SEXP _varma_estimate_varma_gls_cpp(SEXP YSEXP, SEXP USEXP, SEXP SigmaU_invSEXP, SEXP pSEXP, SEXP qSEXP, SEXP typeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type U(USEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type SigmaU_inv(SigmaU_invSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type q(qSEXP);
+    Rcpp::traits::input_parameter< String >::type type(typeSEXP);
+    rcpp_result_gen = Rcpp::wrap(estimate_varma_gls_cpp(Y, U, SigmaU_inv, p, q, type));
+    return rcpp_result_gen;
+END_RCPP
+}
+// autocov_gs_cpp
+arma::cube autocov_gs_cpp(Rcpp::Nullable<arma::cube> ar_in, Rcpp::Nullable<arma::cube> ma_in, arma::mat cov, int max_lag);
+RcppExport SEXP _varma_autocov_gs_cpp(SEXP ar_inSEXP, SEXP ma_inSEXP, SEXP covSEXP, SEXP max_lagSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::Nullable<arma::cube> >::type ar_in(ar_inSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<arma::cube> >::type ma_in(ma_inSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type cov(covSEXP);
+    Rcpp::traits::input_parameter< int >::type max_lag(max_lagSEXP);
+    rcpp_result_gen = Rcpp::wrap(autocov_gs_cpp(ar_in, ma_in, cov, max_lag));
+    return rcpp_result_gen;
+END_RCPP
+}
+// autocov_mc_cpp
+arma::cube autocov_mc_cpp(const arma::cube& ar, const arma::cube& ma, const arma::mat& cov, int maxlag);
+RcppExport SEXP _varma_autocov_mc_cpp(SEXP arSEXP, SEXP maSEXP, SEXP covSEXP, SEXP maxlagSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::cube& >::type ar(arSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type ma(maSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type cov(covSEXP);
+    Rcpp::traits::input_parameter< int >::type maxlag(maxlagSEXP);
+    rcpp_result_gen = Rcpp::wrap(autocov_mc_cpp(ar, ma, cov, maxlag));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_varma_compute_varma_acgf_cpp", (DL_FUNC) &_varma_compute_varma_acgf_cpp, 4},
     {"_varma_irf_varma_rcpp", (DL_FUNC) &_varma_irf_varma_rcpp, 4},
     {"_varma_sim_varma_rcpp", (DL_FUNC) &_varma_sim_varma_rcpp, 3},
     {"_varma_solve_riccati", (DL_FUNC) &_varma_solve_riccati, 3},
@@ -151,6 +210,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_kalman", (DL_FUNC) &_varma_kalman, 9},
     {"_varma_sur_cpp", (DL_FUNC) &_varma_sur_cpp, 3},
     {"_varma_var_filter", (DL_FUNC) &_varma_var_filter, 3},
+    {"_varma_estimate_varma_gls_cpp", (DL_FUNC) &_varma_estimate_varma_gls_cpp, 6},
+    {"_varma_autocov_gs_cpp", (DL_FUNC) &_varma_autocov_gs_cpp, 4},
+    {"_varma_autocov_mc_cpp", (DL_FUNC) &_varma_autocov_mc_cpp, 4},
     {NULL, NULL, 0}
 };
 

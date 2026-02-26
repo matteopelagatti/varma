@@ -531,36 +531,36 @@ autocov_sp <- function(varma, maxlag = 10) { # based on vectorization and Kronec
 }
 
 
-#' Autocovariance function of VARMA process
-#'
-#' It computes the autocovariances using the state-space representation of the VARMA process and
-#' the following formula for the variance of the state variable using the Lyapunov equation solution
-#' of the package netcontrol:
-#' \eqn{vec(\Gamma_0) = (I - T \otimes T)^{-1} vec(RQR')}
-#'
-#' @param varma a varma object.
-#' @param maxlag positive integer with the maximum lag for the autocovariance function.
-#'
-#' @returns Array with autocovariance matrices.
-#'
-#' @export
-autocov_ly <- function(varma, maxlag = 10) { # based on Lyapunov equation solution in package netcontrol
-  if (maxlag < 0) maxlag <- 0
-  ss <- varma_to_ss(varma)
-  mpq <- dim(varma)
-  k <- dim(ss$T)[1]
-  G <- array(0, c(k, k, maxlag + 1))
-  G[,,1] <- netcontrol::dlyap(t(ss$T), ss$R %*% ss$Q %*% t(ss$R))
-  if (maxlag > 0) for (i in 1:maxlag) {
-    G[,,i+1] <- ss$T %*% G[,,i]
-  }
-  G[1:mpq[1], 1:mpq[1], ]
-}
+# Autocovariance function of VARMA process
+#
+# It computes the autocovariances using the state-space representation of the VARMA process and
+# the following formula for the variance of the state variable using the Lyapunov equation solution
+# of the package netcontrol:
+# \eqn{vec(\Gamma_0) = (I - T \otimes T)^{-1} vec(RQR')}
+#
+# @param varma a varma object.
+# @param maxlag positive integer with the maximum lag for the autocovariance function.
+#
+# @returns Array with autocovariance matrices.
+#
+# @export
+# autocov_ly <- function(varma, maxlag = 10) { # based on Lyapunov equation solution in package netcontrol
+#   if (maxlag < 0) maxlag <- 0
+#   ss <- varma_to_ss(varma)
+#   mpq <- dim(varma)
+#   k <- dim(ss$T)[1]
+#   G <- array(0, c(k, k, maxlag + 1))
+#   G[,,1] <- netcontrol::dlyap(t(ss$T), ss$R %*% ss$Q %*% t(ss$R))
+#   if (maxlag > 0) for (i in 1:maxlag) {
+#     G[,,i+1] <- ss$T %*% G[,,i]
+#   }
+#   G[1:mpq[1], 1:mpq[1], ]
+# }
 
 #' Autocovariance function of VARMA process
 #'
 #' It computes the autocovariances using the state-space representation of the VARMA process and
-#' the algorithm og Giacomo Sbrana
+#' the formula of Giacomo Sbrana
 #'
 #' @param varma a varma object.
 #' @param maxlag positive integer with the maximum lag for the autocovariance function.
@@ -570,29 +570,7 @@ autocov_ly <- function(varma, maxlag = 10) { # based on Lyapunov equation soluti
 #' @export
 autocov_gs <- function(varma, maxlag = 10) { # based on the method of Giacomo Sbrana
   if (maxlag < 0) maxlag <- 0
-  ss <- varma_to_ss(varma)
-  mpq <- dim(varma)
-  G <- array(0, c(dim(ss$T)[1], dim(ss$T)[2], maxlag + 1))
-  if (mpq[2] > 0) {
-    ei <- eigen(ss$T)
-    if (all(ei$values == 0)) {
-      G[,,1] <- solve_dlyap_iter(Matrix::Matrix(ss$T, sparse = TRUE), ss$R %*% ss$Q %*% t(ss$R))
-    } else {
-      K <- ss$T[, 1:mpq[1]] + rbind(ss$R[-(1:mpq[1]), ], matrix(0, mpq[1], mpq[1])) # ss$T %*% ss$R
-      V <- ei$vectors
-      iV <- solve(V)
-      iVK <- iV %*% K
-      A <- 1 - outer(ei$values, ei$values)
-      G[,,1] <- ss$R %*% ss$Q %*% t(ss$R) + V %*% (iVK %*% ss$Q %*% t(iVK) / A) %*% t(V)}
-  } else {
-    G[,,1] <- ss$R %*% ss$Q %*% t(ss$R)
-  }
-  if (maxlag > 0) {
-    for (i in 1:maxlag) {
-      G[,,i+1] <- ss$T %*% G[,,i]
-    }
-  }
-  Re(G[1:mpq[1], 1:mpq[1], ])
+  autocov_gs_cpp(varma$ar, varma$ma, varma$cov, maxlag)
 }
 
 
@@ -607,174 +585,178 @@ autocov_gs <- function(varma, maxlag = 10) { # based on the method of Giacomo Sb
 #' @returns Array with autocovariance matrices.
 #'
 #' @export
-autocov_mc <- function(varma, maxlag = 10) { # based on Tucker McElroy's code
-  # My modification of the original function
-  ##################################################################################
-  #
-  #  VARMAauto
-  #	Copyright (2015) Tucker McElroy
-  #
-  #	This program is free software; you can redistribute it and/or
-  #	modify it under the terms of the GNU General Public License
-  #	as published by the Free Software Foundation; either version 2
-  #	of the License, or (at your option) any later version.
-  #
-  #	This program is distributed in the hope that it will be useful,
-  #	but WITHOUT ANY WARRANTY; without even the implied warranty of
-  #	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  #	GNU General Public License for more details.
-  #
-  #	You should have received a copy of the GNU General Public License
-  #	along with this program; if not, write to the Free Software
-  #	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
-  #
-  ##############################################################################
-
-  #######################################################################
-  #	DOCUMENTATION:
-  # Function computes autocovariances of VARMA (p,q) from lag zero
-  #	to maxlag, with inputs phi and theta.
-  #	(1 - phi[1]z ... - phi[p]z^p) X_t = (1 + theta[1]z ...+ theta[q]z^q) WN
-  #  output: autocovariance string of length maxlag
-  #  for absent AR or MA portions, pass in NULL
-  #  phi and theta should be arrays of m x m matrices
-  #	sigma should be an m x m matrix
-  #  e.g. phi <- array(cbind(phi1,phi2,...,phip),c(m,m,p))
-  ################################################################
-
-  polymulMat <- function(amat,bmat)
-  {
-    p <- dim(amat)[3]
-    q <- dim(bmat)[3]
-    m <- dim(amat)[2]
-    amatd <- amat[,,p:1]
-    if(m==1) amatd <- array(amatd,c(m,m,p))
-    if(q > 1) amatd <- array(c(matrix(0,m,m*(q-1)),amatd),c(m,m,p+q-1))
-    bigmat <- NULL
-    for(i in 1:(p+q-1))
-    {
-      nextmat <- matrix(amatd[,,1:(p+q-1)],m,m*(p+q-1))
-      bigmat <- rbind(nextmat,bigmat)
-      amatd <- amatd[,,-1]
-      amatd <- array(c(amatd,matrix(0,m,m)),c(m,m,p+q-1))
-    }
-    bigmat <- bigmat[,1:(m*q)]
-    out <- bigmat %*% t(matrix(bmat[,,q:1],m,m*q))
-    out <- array(out,c(m,p+q-1,m))
-    temp <- NULL
-    for(i in 1:(p+q-1))
-    {
-      temp <- cbind(temp,out[,i,])
-    }
-    out <- array(temp,c(m,m,p+q-1))
-
-    return(out)
-  }
-
-  Kcommut <- function(vect,m,n)
-  {
-    return(matrix(t(matrix(vect,nrow=m,ncol=n)),ncol=1))
-  }
-
-  mpq <- dim(varma)
-  m <- mpq[1]
-  p <- mpq[2]
-  q <- mpq[3]
-  Kmat <- apply(diag(m^2),1,Kcommut,m,m)
-
-  if (q == 0) { gamMA <- array(varma$cov,c(m,m,1)) } else
-  {
-    temp <- polymulMat(array(cbind(diag(m),matrix(varma$ma,m,m*q)),c(m,m,q+1)),
-                       array(varma$cov,c(m,m,1)))
-    gamMA <- polymulMat(temp,array(cbind(diag(m),matrix(varma$ma,m,m*q)),c(m,m,q+1)))
-  }
-  gamMA <- gamMA[,,(q+1):(2*q+1)]
-  if(m==1) gamMA <- array(gamMA,c(m,m,q+1))
-  gamMAvec <- matrix(gamMA,m^2*(q+1),1)
-
-  if (p > 0)
-  {
-    Amat <- matrix(0,nrow=m^2*(p+1),ncol=m^2*(2*p+1))
-    Amat <- array(Amat,c(m^2,p+1,m^2,2*p+1))
-    Arow <- diag(m^2)
-    for(i in 1:p)
-    {
-      Arow <- cbind(-1*diag(m) %x% varma$ar[,,i],Arow)
-    }
-    for(i in 1:(p+1))
-    {
-      Amat[,i,,i:(i+p)] <- Arow
-    }
-    newA <- array(matrix(Amat[,1:(p+1),,1:p],m^2*(p+1),m^2*(p)),c(m^2,p+1,m^2,p))
-    for(i in 1:(p+1))
-    {
-      for(j in 1:p)
-      {
-        newA[,i,,j] <- newA[,i,,j] %*% Kmat
-      }
-    }
-    Amat <- cbind(matrix(Amat[,,,p+1],m^2*(p+1),m^2),
-                  matrix(Amat[,,,(p+2):(2*p+1)],m^2*(p+1),m^2*(p)) +
-                    matrix(newA[,,,p:1],m^2*(p+1),m^2*(p)))
-
-    Bmat <- matrix(0,nrow=m^2*(q+1),ncol=m^2*(p+q+1))
-    Bmat <- array(Bmat,c(m^2,q+1,m^2,p+q+1))
-    Brow <- diag(m^2)
-    for(i in 1:p)
-    {
-      Brow <- cbind(Brow,-1*varma$ar[,,i] %x% diag(m))
-    }
-    for(i in 1:(q+1))
-    {
-      Bmat[,i,,i:(i+p)] <- Brow
-    }
-    Bmat <- Bmat[,,,1:(q+1)]
-    Bmat <- matrix(Bmat,m^2*(q+1),m^2*(q+1))
-    Binv <- solve(Bmat)
-
-    gamMix <- Binv %*% gamMAvec
-    if (p <= q) gamMixTemp <- gamMix[1:((p+1)*m^2)] else
-      gamMixTemp <- c(gamMix,rep(0,(p-q)*m^2))
-    gamARMA <- solve(Amat) %*% gamMixTemp
-    gamMix <- array(matrix(gamMix,m,m*(q+1)),c(m,m,q+1))
-    gamARMA <- array(matrix(gamARMA,m,m*(p+1)),c(m,m,p+1))
-  } else
-  {
-    gamARMA <- array(gamMA[,,1],c(m,m,1))
-    if (q == 0) { gamMix <- array(varma$cov,c(m,m,1)) } else
-    {
-      gamMix <- gamMA[,,1:(q+1)]
-      if(m==1) gamMix <- array(gamMix,c(1,1,q+1))
-    }
-  }
-
-  if (maxlag <= p)
-  {
-    gamARMA <- gamARMA[,,1:(maxlag+1)]
-    if(m==1) gamARMA <- array(gamARMA,c(1,1,maxlag+1))
-  } else
-  {
-    if (maxlag > q) gamMix <- array(cbind(matrix(gamMix,m,m*(q+1)),
-                                          matrix(0,m,m*(maxlag-q))),c(m,m,(maxlag+1)))
-    for(k in 1:(maxlag-p))
-    {
-      len <- dim(gamARMA)[3]
-      acf <- gamMix[,,p+1+k]
-      if (p > 0)
-      {
-        temp <- NULL
-        for(i in 1:p)
-        {
-          temp <- rbind(temp,gamARMA[,,len-i+1])
-        }
-        acf <- acf + matrix(varma$ar,m,m*p) %*% temp
-      }
-      gamARMA <- array(cbind(matrix(gamARMA,m,m*len),acf),c(m,m,len+1))
-    }
-  }
-
-  return(gamARMA)
+autocov_mc <- function(varma, maxlag = 10) {
+  if (maxlag < 0) maxlag <- 0
+  autocov_mc_cpp(varma$ar, varma$ma, varma$cov, maxlag)
 }
+# autocov_mc <- function(varma, maxlag = 10) { # based on Tucker McElroy's code
+#   # My modification of the original function
+#   ##################################################################################
+#   #
+#   #  VARMAauto
+#   #	Copyright (2015) Tucker McElroy
+#   #
+#   #	This program is free software; you can redistribute it and/or
+#   #	modify it under the terms of the GNU General Public License
+#   #	as published by the Free Software Foundation; either version 2
+#   #	of the License, or (at your option) any later version.
+#   #
+#   #	This program is distributed in the hope that it will be useful,
+#   #	but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   #	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   #	GNU General Public License for more details.
+#   #
+#   #	You should have received a copy of the GNU General Public License
+#   #	along with this program; if not, write to the Free Software
+#   #	Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+#   #
+#   ##############################################################################
+#
+#   #######################################################################
+#   #	DOCUMENTATION:
+#   # Function computes autocovariances of VARMA (p,q) from lag zero
+#   #	to maxlag, with inputs phi and theta.
+#   #	(1 - phi[1]z ... - phi[p]z^p) X_t = (1 + theta[1]z ...+ theta[q]z^q) WN
+#   #  output: autocovariance string of length maxlag
+#   #  for absent AR or MA portions, pass in NULL
+#   #  phi and theta should be arrays of m x m matrices
+#   #	sigma should be an m x m matrix
+#   #  e.g. phi <- array(cbind(phi1,phi2,...,phip),c(m,m,p))
+#   ################################################################
+#
+#   polymulMat <- function(amat,bmat)
+#   {
+#     p <- dim(amat)[3]
+#     q <- dim(bmat)[3]
+#     m <- dim(amat)[2]
+#     amatd <- amat[,,p:1]
+#     if(m==1) amatd <- array(amatd,c(m,m,p))
+#     if(q > 1) amatd <- array(c(matrix(0,m,m*(q-1)),amatd),c(m,m,p+q-1))
+#     bigmat <- NULL
+#     for(i in 1:(p+q-1))
+#     {
+#       nextmat <- matrix(amatd[,,1:(p+q-1)],m,m*(p+q-1))
+#       bigmat <- rbind(nextmat,bigmat)
+#       amatd <- amatd[,,-1]
+#       amatd <- array(c(amatd,matrix(0,m,m)),c(m,m,p+q-1))
+#     }
+#     bigmat <- bigmat[,1:(m*q)]
+#     out <- bigmat %*% t(matrix(bmat[,,q:1],m,m*q))
+#     out <- array(out,c(m,p+q-1,m))
+#     temp <- NULL
+#     for(i in 1:(p+q-1))
+#     {
+#       temp <- cbind(temp,out[,i,])
+#     }
+#     out <- array(temp,c(m,m,p+q-1))
+#
+#     return(out)
+#   }
+#
+#   Kcommut <- function(vect,m,n)
+#   {
+#     return(matrix(t(matrix(vect,nrow=m,ncol=n)),ncol=1))
+#   }
+#
+#   mpq <- dim(varma)
+#   m <- mpq[1]
+#   p <- mpq[2]
+#   q <- mpq[3]
+#   Kmat <- apply(diag(m^2),1,Kcommut,m,m)
+#
+#   if (q == 0) { gamMA <- array(varma$cov,c(m,m,1)) } else
+#   {
+#     temp <- polymulMat(array(cbind(diag(m),matrix(varma$ma,m,m*q)),c(m,m,q+1)),
+#                        array(varma$cov,c(m,m,1)))
+#     gamMA <- polymulMat(temp,array(cbind(diag(m),matrix(varma$ma,m,m*q)),c(m,m,q+1)))
+#   }
+#   gamMA <- gamMA[,,(q+1):(2*q+1)]
+#   if(m==1) gamMA <- array(gamMA,c(m,m,q+1))
+#   gamMAvec <- matrix(gamMA,m^2*(q+1),1)
+#
+#   if (p > 0)
+#   {
+#     Amat <- matrix(0,nrow=m^2*(p+1),ncol=m^2*(2*p+1))
+#     Amat <- array(Amat,c(m^2,p+1,m^2,2*p+1))
+#     Arow <- diag(m^2)
+#     for(i in 1:p)
+#     {
+#       Arow <- cbind(-1*diag(m) %x% varma$ar[,,i],Arow)
+#     }
+#     for(i in 1:(p+1))
+#     {
+#       Amat[,i,,i:(i+p)] <- Arow
+#     }
+#     newA <- array(matrix(Amat[,1:(p+1),,1:p],m^2*(p+1),m^2*(p)),c(m^2,p+1,m^2,p))
+#     for(i in 1:(p+1))
+#     {
+#       for(j in 1:p)
+#       {
+#         newA[,i,,j] <- newA[,i,,j] %*% Kmat
+#       }
+#     }
+#     Amat <- cbind(matrix(Amat[,,,p+1],m^2*(p+1),m^2),
+#                   matrix(Amat[,,,(p+2):(2*p+1)],m^2*(p+1),m^2*(p)) +
+#                     matrix(newA[,,,p:1],m^2*(p+1),m^2*(p)))
+#
+#     Bmat <- matrix(0,nrow=m^2*(q+1),ncol=m^2*(p+q+1))
+#     Bmat <- array(Bmat,c(m^2,q+1,m^2,p+q+1))
+#     Brow <- diag(m^2)
+#     for(i in 1:p)
+#     {
+#       Brow <- cbind(Brow,-1*varma$ar[,,i] %x% diag(m))
+#     }
+#     for(i in 1:(q+1))
+#     {
+#       Bmat[,i,,i:(i+p)] <- Brow
+#     }
+#     Bmat <- Bmat[,,,1:(q+1)]
+#     Bmat <- matrix(Bmat,m^2*(q+1),m^2*(q+1))
+#     Binv <- solve(Bmat)
+#
+#     gamMix <- Binv %*% gamMAvec
+#     if (p <= q) gamMixTemp <- gamMix[1:((p+1)*m^2)] else
+#       gamMixTemp <- c(gamMix,rep(0,(p-q)*m^2))
+#     gamARMA <- solve(Amat) %*% gamMixTemp
+#     gamMix <- array(matrix(gamMix,m,m*(q+1)),c(m,m,q+1))
+#     gamARMA <- array(matrix(gamARMA,m,m*(p+1)),c(m,m,p+1))
+#   } else
+#   {
+#     gamARMA <- array(gamMA[,,1],c(m,m,1))
+#     if (q == 0) { gamMix <- array(varma$cov,c(m,m,1)) } else
+#     {
+#       gamMix <- gamMA[,,1:(q+1)]
+#       if(m==1) gamMix <- array(gamMix,c(1,1,q+1))
+#     }
+#   }
+#
+#   if (maxlag <= p)
+#   {
+#     gamARMA <- gamARMA[,,1:(maxlag+1)]
+#     if(m==1) gamARMA <- array(gamARMA,c(1,1,maxlag+1))
+#   } else
+#   {
+#     if (maxlag > q) gamMix <- array(cbind(matrix(gamMix,m,m*(q+1)),
+#                                           matrix(0,m,m*(maxlag-q))),c(m,m,(maxlag+1)))
+#     for(k in 1:(maxlag-p))
+#     {
+#       len <- dim(gamARMA)[3]
+#       acf <- gamMix[,,p+1+k]
+#       if (p > 0)
+#       {
+#         temp <- NULL
+#         for(i in 1:p)
+#         {
+#           temp <- rbind(temp,gamARMA[,,len-i+1])
+#         }
+#         acf <- acf + matrix(varma$ar,m,m*p) %*% temp
+#       }
+#       gamARMA <- array(cbind(matrix(gamARMA,m,m*len),acf),c(m,m,len+1))
+#     }
+#   }
+#
+#   return(gamARMA)
+# }
 
 #' VARMA estimation in Diagonal MA form using the method of Dufoura and Pelletierc
 #'

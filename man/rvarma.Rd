@@ -10,7 +10,8 @@ rvarma(
   q,
   max_eig_ar = 0.9,
   max_eig_ma = 0.9,
-  dist = function(n) stats::runif(n, -1, 1)
+  dist = function(n) stats::runif(n, -1, 1),
+  max_try = 5
 )
 }
 \arguments{

@@ -16,5 +16,5 @@ Array with autocovariance matrices.
 }
 \description{
 It computes the autocovariances using the state-space representation of the VARMA process and
-the algorithm og Giacomo Sbrana
+the formula of Giacomo Sbrana
 }
