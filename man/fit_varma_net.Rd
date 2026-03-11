@@ -56,6 +56,10 @@ based on `fit_varma_ihr`.}
 
 \item{r}{integer order of the first step VAR(r) model used in `fit_varma_ihr`.}
 
+\item{parallel}{TRUE if parallelization is required}
+
+\item{n_cores}{integer number of cores to use, if parallel = TRUE}
+
 \item{ret}{a character string indicating the type of output: "varma" or "regression".}
 }
 \value{

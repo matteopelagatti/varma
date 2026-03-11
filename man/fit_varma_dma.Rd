@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{fit_varma_dma}
 \alias{fit_varma_dma}
-\title{VARMA estimation in Diagonal MA form using the method of Dufoura and Pelletierc}
+\title{VARMA estimation in Diagonal MA form using the method of Dufour and Pelletier}
 \usage{
 fit_varma_dma(
   Y,
@@ -32,5 +32,5 @@ coefficients, matrix of residuals, fitted.values, effects, weights, rank,
 df.residual, qr, n_iter, res_cov.
 }
 \description{
-VARMA estimation in Diagonal MA form using the method of Dufoura and Pelletierc
+VARMA estimation in Diagonal MA form using the method of Dufour and Pelletier
 }

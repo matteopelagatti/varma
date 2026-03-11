@@ -735,7 +735,7 @@ arma::cube autocov_gs_cpp(Rcpp::Nullable<arma::cube> ar_in,
   return Gamma;
 }
 
-// Tucker-McElroy Method
+// McElroy Method
 // Helper function: Equivalent to Kcommut in R
 arma::mat Kcommut(const arma::vec& vect, int m, int n) {
   arma::mat temp(const_cast<double*>(vect.begin()), m, n, false, true);
@@ -809,7 +809,8 @@ arma::cube polymulMat(const arma::cube& amat, const arma::cube& bmat) {
 //'
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
-arma::cube autocov_mc_cpp(const arma::cube& ar, const arma::cube& ma, const arma::mat& cov, int maxlag = 10) {
+arma::cube autocov_mc_cpp(const arma::cube& ar, const arma::cube& ma,
+                          const arma::mat& cov, int maxlag = 10) {
   int m = cov.n_rows;
   int p = ar.n_slices;
   int q = ma.n_slices;
@@ -941,4 +942,317 @@ arma::cube autocov_mc_cpp(const arma::cube& ar, const arma::cube& ma, const arma
   }
 
   return gamARMA_cube;
+}
+
+//' Autocovariance function using Ansley (1980) method
+//'
+//' @param ar_in a 3d-array with the p AR coefficient matrices
+//' @param ma_in a 3d-array with the q MA coefficient matrices
+//' @param cov covariance matrix of the innovations
+//' @param maxlag non-negative integer with max lag of the autocovariance function
+//'
+//' @returns A 3d array with the max_lag+1 autocovariance matrices
+//'
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+arma::cube autocov_an_cpp(arma::cube phi,  arma::cube theta,
+                          arma::mat cov, int maxlag) {
+  int p = phi.n_slices;
+  int q = theta.n_slices;
+  int k_max = std::max(p, q);
+  int m = cov.n_rows;
+
+  // 1. Compute Cross-Covariances E[y_t epsilon_{t-j}']
+  // We use a cube to store these intermediate Tau matrices
+  cube tau(m, m, k_max + 1, fill::zeros);
+  tau.slice(0) = cov;
+
+  for (int j = 1; j <= k_max; ++j) {
+    mat temp = zeros(m, m);
+    if (j <= q) temp += theta.slice(j-1) * cov;
+    for (int i = 1; i <= std::min(j, p); ++i) {
+      temp += phi.slice(i-1) * tau.slice(j-i);
+    }
+    tau.slice(j) = temp;
+  }
+
+  // 2. Setup the Linear System for Gamma(0) ... Gamma(p)
+  // System dimension: (p+1) matrices of size m x m
+  int sys_dim = m * m * (p + 1);
+  mat A = eye(sys_dim, sys_dim);
+  vec b = zeros(sys_dim);
+
+  for (int h = 0; h <= p; ++h) {
+    // Build RHS: sum_{j=h}^q Theta_j Sigma Psi_{j-h}'
+    mat rhs_h = zeros(m, m);
+    for (int j = h; j <= q; ++j) {
+      // Note: theta.slice(j-1) represents Theta_j
+      mat Theta_j = (j == 0) ? eye(m, m) : theta.slice(j-1);
+      rhs_h += Theta_j * tau.slice(j-h).t();
+    }
+
+    int row_start = h * m * m;
+    b.subvec(row_start, row_start + m * m - 1) = vectorise(rhs_h);
+
+    // Build LHS Matrix mapping the relationship between Gamma lags
+    for (int i = 1; i <= p; ++i) {
+      mat Phi_i = phi.slice(i-1);
+      int target_lag = std::abs(h - i);
+      int col_start = target_lag * m * m;
+
+      mat term;
+      if (h >= i) {
+        // Standard case: Phi_i * Gamma(h-i)
+        term = kron(eye(m, m), Phi_i);
+      } else {
+        // Symmetric case: Phi_i * Gamma(i-h)'
+        // Uses the property vec(A X' B) = (B \otimes A) vec(X')
+        // For Gamma(k)', a commutation matrix or index swap is needed
+        term = kron(Phi_i, eye(m, m));
+      }
+      A.submat(row_start, col_start, row_start + m * m - 1, col_start + m * m - 1) -= term;
+    }
+  }
+
+  // 3. Solve the system (vec_gamma contains Gamma_0 to Gamma_p)
+  vec vec_gamma = solve(A, b);
+
+  // 4. Populate output cube and extend via AR recursion
+  cube gamma_out(m, m, maxlag + 1, fill::zeros);
+  for (int h = 0; h <= std::min(p, maxlag); ++h) {
+    gamma_out.slice(h) = reshape(vec_gamma.subvec(h * m * m, (h + 1) * m * m - 1), m, m);
+  }
+
+  // Apply recursive Yule-Walker for lags > p
+  for (int h = p + 1; h <= maxlag; ++h) {
+    mat gh = zeros(m, m);
+    for (int i = 1; i <= p; ++i) {
+      gh += phi.slice(i-1) * gamma_out.slice(h-i);
+    }
+    gamma_out.slice(h) = gh;
+  }
+
+  return gamma_out;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Implementation of Mittnik's algorithm to compute the autocovariance function
+///////////////////////////////////////////////////////////////////////////////
+
+// mittnik1990_acov.cpp
+//
+// RcppArmadillo implementation of:
+//   Mittnik, S. (1990). Computation of Theoretical Autocovariance Matrices of
+//   Multivariate Autoregressive Moving Average Time Series.
+//   Journal of the Royal Statistical Society: Series B, 52(1), 151-155.
+//
+// Computes the theoretical autocovariance matrices Gamma_0, ..., Gamma_{max_lag}
+// for a stationary VARMA(p,q) process:
+//
+//   A(L) y_t = B(L) eps_t
+//
+// where:
+//   A(L) = I - A_1*L - ... - A_p*L^p
+//   B(L) = I + B_1*L + ... + B_q*L^q       (B_0 = I assumed throughout)
+//   E[eps_t eps_s'] = delta_{ts} * Sigma
+//
+// Input conventions (identical to Sbrana's autocov_gs_cpp):
+//   ar_in  : (m x m x p) cube of AR coefficients A_1, ..., A_p, or NULL for pure VMA.
+//   ma_in  : (m x m x q) cube of MA coefficients B_1, ..., B_q, or NULL for pure VAR.
+//   cov    : (m x m) innovation covariance matrix Sigma.
+//   max_lag: number of lags to return beyond lag 0.
+//
+// Returns: (m x m x (max_lag+1)) cube; slice k = Gamma_k = E[y_t y_{t-k}^T].
+
+// ============================================================
+// Helper: MA-infinity (Wold) coefficients C_0, C_1, ..., C_{maxC-1}
+//
+//   C_0 = I  (since B_0 = I)
+//   C_i = B_i + sum_{j=1}^{min(i,p)} A_j * C_{i-j}    for 1 <= i <= q
+//   C_i =       sum_{j=1}^{min(i,p)} A_j * C_{i-j}    for i > q
+//
+// A : m x m x max(p,1)  (zero-padded when p=0)
+// B : m x m x (q+1),    B.slice(0) = I, B.slice(k) = B_k for k=1..q
+// ============================================================
+static cube build_C_coefs(const cube& A, const cube& B, int maxC)
+{
+  const int m = A.n_rows;
+  const int p = A.n_slices;
+  const int q = (int)B.n_slices - 1;
+
+  cube C(m, m, maxC, fill::zeros);
+  for (int i = 0; i < maxC; i++) {
+    mat Ci = (i <= q) ? mat(B.slice(i)) : mat(m, m, fill::zeros);
+    for (int j = 1; j <= std::min(i, p); j++)
+      Ci += A.slice(j - 1) * C.slice(i - j);
+    C.slice(i) = Ci;
+  }
+  return C;
+}
+
+// ============================================================
+// Helper: NC* matrices for lags tau = 0, ..., pe
+//
+// From eq. (2): NC*_tau = sum_{j=tau}^{q} B_j * Sigma * C_{j-tau}^T
+//
+// Derivation: E[eps_{t-j} y_{t-tau}^T] = Sigma * C_{j-tau}^T  (for j >= tau)
+// follows from y_{t-tau} = sum_k C_k eps_{t-tau-k} and E[eps eps^T] = Sigma.
+//
+// Returns an m*(pe+1) x m matrix; block row tau is NC*_tau.
+// ============================================================
+static mat build_NC_star(const cube& B, const cube& C, int pe, int q, const mat& Sigma)
+{
+  const int m = B.n_rows;
+  mat NC(m * (pe + 1), m, fill::zeros);
+  for (int tau = 0; tau <= pe; tau++) {
+    mat block(m, m, fill::zeros);
+    for (int j = tau; j <= q; j++)
+      block += B.slice(j) * Sigma * C.slice(j - tau).t();
+    NC.rows(tau * m, (tau + 1) * m - 1) = block;
+  }
+  return NC;
+}
+
+//' Compute theoretical autocovariance matrices for a VARMA(p,q) process
+//' using the method of Mittnik (1990). Identical call convention to
+//' \code{autocov_gs_cpp}: \code{ma_in} holds B_1,...,B_q only; B_0 = I is implicit.
+//'
+//' @param ar_in   3D array (m x m x p) of AR coefficients A_1,...,A_p, or NULL.
+//' @param ma_in   3D array (m x m x q) of MA coefficients B_1,...,B_q, or NULL.
+//' @param cov     Innovation covariance matrix Sigma (m x m).
+//' @param max_lag Number of lags to return beyond lag 0.
+//' @return 3D array (m x m x (max_lag+1)); slice k+1 (1-based in R) is Gamma_k.
+//'
+//' @examples
+//' \dontrun{
+//' sourceCpp("mittnik1990_acov.cpp")
+//'
+//' # Univariate AR(1): Gamma_k = phi^k / (1 - phi^2)
+//' G <- varma_acov(array(0.7, c(1,1,1)), NULL, matrix(1), max_lag = 5)
+//'
+//' # Bivariate VARMA(1,1)
+//' m  <- 2
+//' A1 <- matrix(c(0.4, 0.2, 0.1, 0.3), m, m)
+//' B1 <- matrix(c(0.2, 0.1, 0.0, 0.2), m, m)
+//' G  <- varma_acov(array(A1, c(m,m,1)), array(B1, c(m,m,1)), diag(m), max_lag = 8)
+//' G[,,1]  # Gamma_0 (symmetric)
+//' G[,,2]  # Gamma_1
+//' }
+// [[Rcpp::export]]
+arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
+                          Rcpp::Nullable<arma::cube> ma_in,
+                          arma::mat cov,
+                          int max_lag = 0)
+{
+   // ---- Unpack inputs ----
+   int p = 0, q = 0;
+   cube AR, MA_raw;
+   if (ar_in.isNotNull()) { AR     = Rcpp::as<cube>(ar_in); p = AR.n_slices; }
+   if (ma_in.isNotNull()) { MA_raw = Rcpp::as<cube>(ma_in); q = MA_raw.n_slices; }
+
+   if (p == 0 && q == 0)
+     Rcpp::stop("At least one of ar_in or ma_in must be non-NULL and non-empty.");
+
+   const int m = (p > 0) ? (int)AR.n_rows : (int)MA_raw.n_rows;
+
+   // A: zero-padded cube used when p=0 (satisfies build_C_coefs signature)
+   cube A(m, m, std::max(p, 1), fill::zeros);
+   for (int k = 0; k < p; k++)
+     A.slice(k) = AR.slice(k);
+
+   // B: prepend B_0 = I; B.slice(k) = B_k for k = 0..q
+   cube B(m, m, q + 1, fill::zeros);
+   B.slice(0).eye();
+   for (int k = 1; k <= q; k++)
+     B.slice(k) = MA_raw.slice(k - 1);
+
+   // ---- MA-infinity coefficients ----
+   const int pe   = std::max(p, 1);   // effective AR order (>= 1 to avoid empty system)
+   const int maxC = std::max({p, q, max_lag}) + 2;
+   const cube C_inf = build_C_coefs(A, B, maxC);
+
+   // ---- NC* right-hand side ----
+   const mat NCstar = build_NC_star(B, C_inf, pe, q, cov);
+
+   // ---- Vec-form linear system for Gamma_0 ... Gamma_pe ----
+   //
+   // Unknown: x_tau = vec(Gamma_tau^T),  tau = 0..pe,  stacked into a vector of
+   // length m^2*(pe+1).
+   //
+   // Yule-Walker recurrence (eq. 2, using Gamma_{-k} = Gamma_k^T):
+   //   Gamma_tau = sum_{k<=tau} A_k Gamma_{tau-k}
+   //             + sum_{k>tau}  A_k Gamma_{k-tau}^T
+   //             + NC*_tau
+   //
+   // Vectorising x_tau = vec(Gamma_tau^T):
+   //   k <= tau:  coefficient on x_{tau-k} = kron(A_k, I_m)
+   //   k >  tau:  coefficient on x_{k-tau} = kron(A_k, I_m) * Wm
+   // where Wm is the m^2 x m^2 commutation matrix, vec(X^T) = Wm * vec(X).
+   //
+   // Proofs:
+   //   k <= tau: vec((A_k Gamma_{tau-k})^T) = vec(Gamma_{tau-k}^T A_k^T)
+   //             = kron(A_k, I_m) * vec(Gamma_{tau-k}^T)    [vec(XM) = (M^T ox I)vec(X)]
+   //
+   //   k >  tau: vec((A_k Gamma_{k-tau}^T)^T) = vec(Gamma_{k-tau} A_k^T)
+   //             = kron(A_k, I_m) * vec(Gamma_{k-tau})
+   //             = kron(A_k, I_m) * Wm * vec(Gamma_{k-tau}^T)
+
+   const int m2     = m * m;
+   const int sz_vec = m2 * (pe + 1);
+
+   // Commutation matrix: Wm(i*m+j, j*m+i) = 1
+   mat Wm(m2, m2, fill::zeros);
+   for (int i = 0; i < m; i++)
+     for (int j = 0; j < m; j++)
+       Wm(i * m + j, j * m + i) = 1.0;
+
+   const mat I_m(m, m, fill::eye);
+
+   mat Lv(sz_vec, sz_vec, fill::eye);
+   vec Rv(sz_vec, fill::zeros);
+
+   for (int tau = 0; tau <= pe; tau++)
+     Rv.subvec(tau * m2, (tau + 1) * m2 - 1) =
+       vectorise(NCstar.rows(tau * m, (tau + 1) * m - 1).t());
+
+   for (int tau = 0; tau <= pe; tau++) {
+     for (int k = 1; k <= p; k++) {
+       const mat kAI = kron(A.slice(k - 1), I_m);
+       if (tau - k >= 0)
+         Lv.submat(tau * m2, (tau - k) * m2,
+                   (tau + 1) * m2 - 1, (tau - k + 1) * m2 - 1) -= kAI;
+       if (k - tau > 0 && k - tau <= pe)
+         Lv.submat(tau * m2, (k - tau) * m2,
+                   (tau + 1) * m2 - 1, (k - tau + 1) * m2 - 1) -= kAI * Wm;
+     }
+   }
+
+   // ---- Solve ----
+   const vec gam_vec = solve(Lv, Rv);
+
+   // ---- Unpack Gamma_0 ... Gamma_pe ----
+   const int n_init = pe + 1;
+   std::vector<mat> Gamma(std::max(n_init, max_lag + 1));
+   for (int tau = 0; tau <= pe; tau++) {
+     const vec gv = gam_vec.subvec(tau * m2, (tau + 1) * m2 - 1);
+     Gamma[tau] = reshape(gv, m, m).t();   // reshape gives Gamma_tau^T, .t() inverts
+   }
+
+   // ---- Higher lags by recursion (eq. 10) ----
+   // Gamma_tau = sum_{k=1}^p A_k Gamma_{tau-k} + sum_{j=tau}^q B_j Sigma C_{j-tau}^T
+   for (int tau = n_init; tau <= max_lag; tau++) {
+     mat G(m, m, fill::zeros);
+     for (int k = 1; k <= p; k++)
+       if (tau - k >= 0)
+         G += A.slice(k - 1) * Gamma[tau - k];
+       for (int j = tau; j <= q; j++)
+         G += B.slice(j) * cov * C_inf.slice(j - tau).t();
+       Gamma[tau] = G;
+   }
+
+   // ---- Pack output ----
+   cube out(m, m, max_lag + 1);
+   for (int k = 0; k <= max_lag; k++)
+     out.slice(k) = Gamma[k];
+   return out;
 }

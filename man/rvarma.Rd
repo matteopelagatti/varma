@@ -28,6 +28,8 @@ eigenvalue modulus for the AR companion matrix to ensure stationarity.}
 eigenvalue modulus for the MA companion matrix to ensure invertibility.}
 
 \item{dist}{function to generate the random coefficients.}
+
+\item{max_try}{maximum number of trials to get a stationary VARMA model}
 }
 \value{
 A list with two components:

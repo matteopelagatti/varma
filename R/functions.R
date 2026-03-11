@@ -573,10 +573,27 @@ autocov_gs <- function(varma, maxlag = 10) { # based on the method of Giacomo Sb
   autocov_gs_cpp(varma$ar, varma$ma, varma$cov, maxlag)
 }
 
+#' Autocovariance function of VARMA process
+#'
+#' It computes the autocovariances using the state-space representation of the VARMA process and
+#' the formula of Mittnik (1990)
+#'
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
+#'
+#' @returns Array with autocovariance matrices.
+#'
+#' @export
+autocov_mi <- function(varma, maxlag = 10) { # based on the method of Mittnik
+  if (maxlag < 0) maxlag <- 0
+  mpq <- dim(varma)
+  autocov_mi_cpp(varma$ar, varma$ma, varma$cov, maxlag)
+}
+
 
 #' Autocovariance function of VARMA process
 #'
-#' It computes the autocovariances using Tucker McElroy's algorithm.
+#' It computes the autocovariances using McElroy's (2017) algorithm.
 #' The function is based on the original R code made available by the author.
 #'
 #' @param varma a varma object.
@@ -758,7 +775,23 @@ autocov_mc <- function(varma, maxlag = 10) {
 #   return(gamARMA)
 # }
 
-#' VARMA estimation in Diagonal MA form using the method of Dufoura and Pelletierc
+#' Autocovariance function of VARMA process
+#'
+#' It computes the autocovariances using Ansley's (1980) algorithm.
+#' The function is based on the original R code made available by the author.
+#'
+#' @param varma a varma object.
+#' @param maxlag positive integer with the maximum lag for the autocovariance function.
+#'
+#' @returns Array with autocovariance matrices.
+#'
+#' @export
+autocov_an <- function(varma, maxlag = 10) {
+  if (maxlag < 0) maxlag <- 0
+  autocov_an_cpp(varma$ar, varma$ma, varma$cov, maxlag)
+}
+
+#' VARMA estimation in Diagonal MA form using the method of Dufour and Pelletier
 #'
 #' @param Y a (n x m) matrix with the time series.
 #' @param p order of the AR part.
@@ -771,6 +804,8 @@ autocov_mc <- function(varma, maxlag = 10) {
 #' coefficients, matrix of residuals, fitted.values, effects, weights, rank,
 #' df.residual, qr, n_iter, res_cov.
 #'
+#' @importFrom stats coef
+#' @importFrom utils tail
 #' @export
 fit_varma_dma <- function(Y, p=1, q=1, intercept = TRUE,
                           r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
@@ -1085,10 +1120,12 @@ fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
 #' based on `fit_varma_ihr`.
 #' @param r integer order of the first step VAR(r) model used in `fit_varma_ihr`.
 #' @param ret a character string indicating the type of output: "varma" or "regression".
+#' @param parallel TRUE if parallelization is required
+#' @param n_cores integer number of cores to use, if parallel = TRUE
 #'
 #' @returns If ret = "varma" a varma object, otherwise a list with the results of
 #' cv.glmnet for each response variable.
-#'
+#' @importFrom stats coef
 #' @export
 fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
                           lambda = NULL, alpha = 1,
@@ -1661,6 +1698,7 @@ irf_distance <- function(irf1, irf2, r = 2, omit_lag0 = TRUE) {
 #' @param max_eig_ma numeric value between 0 and 1 with the desired maximum
 #'   eigenvalue modulus for the MA companion matrix to ensure invertibility.
 #' @param dist function to generate the random coefficients.
+#' @param max_try maximum number of trials to get a stationary VARMA model
 #'
 #' @return A list with two components:
 #' \describe{
@@ -1757,7 +1795,8 @@ rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
     class = "varma"
   )
   iroots <- inv_roots(out)
-  if (all(Mod(iroots$ar) < 1) && all(Mod(iroots$ma) < 1)) {
+  if ((is.null(iroots$ar) || all(Mod(iroots$ar) < 1)) &&
+      (is.null(iroots$ma) || all(Mod(iroots$ma) < 1))) {
     out
   } else {
     rvarma(m, p, q, max_eig_ar, max_eig_ma, dist, max_try = max_try - 1)
@@ -1821,6 +1860,7 @@ nobs.varma <- function(object, ...) {
 #' the slot `cov` with a 3D array with the cvariance matrices of the forecasts.
 #'
 #' @importFrom stats predict
+#' @importFrom utils tail
 #' @method predict varma
 #' @export
 predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
