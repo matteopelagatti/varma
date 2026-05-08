@@ -1470,7 +1470,7 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' for initializing the Kalman filter
 #' @return A varma object.
 #' @export
-fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
+fit_varma_skf <- function(Y, p, q, intercept = TRUE, maxit = 100) {
   fn_name <- as.character(sys.call()[[1]]) # function name
   Yt <- t(Y)
   # for initial values use intrated Hannan-Rissanen esimates
@@ -1587,6 +1587,170 @@ fit_varma_cpp <- function(Y, p, q, intercept = TRUE, maxit = 100) {
       state_pred_cov  = array_Pt[,, n+1],
       transition_matrix = as.matrix(mT),
       disturbance_cov = as.matrix(mR %*% Matrix::tcrossprod(mQ, mR))
+    ),
+    class = "varma"
+  )
+}
+
+#' Fit a VARMA(p,q) Model using the iterated GLS method
+#'
+#' Estimates the parameters of a VARMA(p,q) model by maximizing the
+#' likelihood iterating GLS step as in Reinsel, Basu and Yap (1992).
+#'
+#' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
+#' @param p the autoregressive order.
+#' @param q the moving average order.
+#' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
+#' @param maxit integer, maximum number of GLS iterations.
+#' @param tol tolerance to determine convergence.
+#' @return A varma object.
+#' @export
+fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
+                          maxit = 500, tol = 1e-5) {
+  fn_name <- as.character(sys.call()[[1]])
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  n <- nrow(Y)
+  m <- ncol(Y)
+  if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
+
+  # When intercept = TRUE, we work on centered Y.
+  if (intercept) {
+    Y_mean <- colMeans(Y)
+    Y_eff  <- Y - rep(Y_mean, each = n) # sweep(Y, 2L, Y_mean, "-")
+  } else {
+    Y_mean <- NULL
+    Y_eff  <- Y
+  }
+
+  # --- STEP 1: Hannan-Rissanen ---
+  p_long   <- max(floor(log(n)^2), p + q + 1)
+  X <- embed(Y_eff, p_long+1)[, -seq_len(m)]
+  hr_reg <- lm.fit(x = X, y = Y_eff[-seq_len(p_long), ])
+  u_long <- hr_reg$resid
+
+  n_start_hr <- p_long + max(p, q) + 1
+  Y_hr <- Y_eff[n_start_hr:n, , drop = FALSE]
+
+  X_hr <- NULL
+  for (i in seq_len(p)) {
+    X_hr <- cbind(X_hr, Y_eff[(n_start_hr - i):(n - i), , drop = FALSE])
+  }
+  for (j in seq_len(q)) {
+    lag_start <- (n_start_hr - j) - p_long
+    lag_end   <- (n   - j) - p_long
+    X_hr <- cbind(X_hr, u_long[lag_start:lag_end, , drop = FALSE])
+  }
+
+  B_hat <- solve(crossprod(X_hr), crossprod(X_hr, Y_hr))
+
+  Phi_arr   <- array(0, dim = c(m, m, p))
+  Theta_arr <- array(0, dim = c(m, m, q))
+
+  idx <- 0L
+  for (i in 1:p) {
+    Phi_arr[, , i] <- t(B_hat[(idx + 1L):(idx + m), , drop = FALSE])
+    idx <- idx + m
+  }
+  for (j in 1:q) {
+    Theta_arr[, , j] <- t(B_hat[(idx + 1L):(idx + m), , drop = FALSE])
+    idx <- idx + m
+  }
+
+  # --- STEP 2: Gauss-Newton with backtracking line search ---
+  # Layout rows of Delta (n_reg x m, n_reg = m*p + m*q):
+  #   Rows 1..m*p        : corrections for Phi_1..Phi_p
+  #   Rows m*p+1..m*(p+q): corrections for Theta_1..Theta_q
+  #
+  # t_start (same as C++): first row with valid resid (0-indexed in C++,
+  # so first valid row in R is t_start + 1).
+  t_start <- max(p, q)
+
+  # Vompute res at initial values (out of loop to reuse it)
+  res <- rby_optimization_step(Y_eff, Phi_arr, Theta_arr, p, q, FALSE, numeric(0))
+
+  for (iter in 1:maxit) {
+
+    ZZ <- res$ZZ
+    ZE <- res$ZE
+    ssr_curr <- sum(res$E[(t_start + 1L):n, ]^2)
+
+    # Full Gauss-Newton step (lambda = 1)
+    Delta <- tryCatch(
+      solve(ZZ, ZE),
+      error = function(e) solve(ZZ + diag(1e-6, nrow(ZZ)), ZE)
+    )
+
+    # Backtracking line search: halves lambda until SSR decreases.
+    # It assures the descent and avoid divergence for too large steps
+    # (see Reinsel et al. 1992, Section 3, eq. 14).
+    lambda <- 1.0
+    for (ls in 1:15) {
+      Phi_trial   <- Phi_arr
+      Theta_trial <- Theta_arr
+      idx_ls <- 0L
+      for (i in 1:p) {
+        Phi_trial[, , i] <- Phi_arr[, , i] +
+          lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
+        idx_ls <- idx_ls + m
+      }
+      for (j in 1:q) {
+        Theta_trial[, , j] <- Theta_arr[, , j] +
+          lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
+        idx_ls <- idx_ls + m
+      }
+      res_trial <- rby_optimization_step(Y_eff, Phi_trial, Theta_trial, p, q,
+                                         FALSE, numeric(0))
+      if (sum(res_trial$E[(t_start + 1L):n, ]^2) < ssr_curr) break
+      lambda <- lambda * 0.5
+    }
+
+    # Accepts the step; res contains the new parameters
+    Phi_arr   <- Phi_trial
+    Theta_arr <- Theta_trial
+    res       <- res_trial
+
+    # Check convergence based on effctive step (lambda * Delta)
+    conv_measure <- lambda * max(abs(Delta))
+    if (conv_measure < tol) {
+      cat(sprintf("Convergence reached at iteration %d. Max Delta: %f\n",
+                  iter, conv_measure))
+      break
+    }
+
+    if (iter %% 5 == 0) cat(sprintf("Iter %d: Max Delta = %f\n",
+                                    iter, conv_measure))
+  }
+
+  # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
+  if (intercept) {
+    I_minus_Phi <- diag(m)
+    for (i in 1:p) I_minus_Phi <- I_minus_Phi - Phi_arr[, , i]
+    c_curr <- drop(I_minus_Phi %*% Y_mean)
+  }
+
+  # Covariance matrix (ML estimator) and concentrated log-likelihood
+  nobs      <- n - t_start
+  E_final   <- res$E
+  Sigma_hat <- crossprod(E_final[(t_start + 1L):n, ]) / nobs
+  loglik_val <- -(nobs * m / 2) * (log(2 * pi) + 1) -
+    (nobs / 2) * log(det(Sigma_hat))
+
+  # Parameters counted: m^2*(p+q) dynamic coefs + m intercepts (if any) + m*(m+1)/2 cov
+  npar <- m^2 * (p + q) + m * as.integer(intercept) + m * (m + 1L) %/% 2L
+
+  structure(
+    list(
+      intercept         = if (intercept) c_curr else NULL,
+      ar                = Phi_arr,
+      ma                = Theta_arr,
+      cov               = Sigma_hat,
+      estimation_method = fn_name,
+      loglik            = loglik_val,
+      n                 = n,
+      nobs              = sum(!is.na(Y)) - t_start*m,
+      npar              = npar,
+      y                 = Y,
+      residuals         = E_final
     ),
     class = "varma"
   )

@@ -509,8 +509,8 @@ arma::mat var_filter(const arma::mat& X, const arma::cube& A, Rcpp::Nullable<arm
 //' @returns A row vector
 //'
 // [[Rcpp::depends(RcppArmadillo)]]
-rowvec get_var_regressors(const mat& Y, int t, int p, int K) {
-  rowvec reg(K * p, fill::zeros);
+arma::rowvec get_var_regressors(const arma::mat& Y, int t, int p, int K) {
+  arma::rowvec reg(K * p, fill::zeros);
   int count = 0;
   for (int lag = 1; lag <= p; lag++) {
     for (int k = 0; k < K; k++) {
@@ -530,7 +530,7 @@ rowvec get_var_regressors(const mat& Y, int t, int p, int K) {
 //'
 //' @returns A row vector
  // [[Rcpp::depends(RcppArmadillo)]]
- rowvec get_ma_regressors(const mat& U, int t, int q, int k_eq) {
+ arma::rowvec get_ma_regressors(const arma::mat& U, int t, int q, int k_eq) {
   rowvec reg(q);
   for (int lag = 1; lag <= q; lag++) {
     reg(lag - 1) = U(t - lag, k_eq); // it takes only the equation k_eq equation
@@ -566,17 +566,17 @@ List estimate_varma_gls_cpp(arma::mat Y, arma::mat U, arma::mat SigmaU_inv,
   int n_total_params = n_params_phi + n_params_theta;
 
   // Matrices for the linear system A * gamma = b
-  mat A(n_total_params, n_total_params, fill::zeros);
-  vec b(n_total_params, fill::zeros);
+  arma::mat A(n_total_params, n_total_params, fill::zeros);
+  arma::vec b(n_total_params, fill::zeros);
 
   // for loop on the time t
   for (int t = t_start; t < T; t++) {
 
     // Making the matrix Z_t (dimensions K x n_total_params)
-    mat Z_t(K, n_total_params, fill::zeros);
+    arma::mat Z_t(K, n_total_params, fill::zeros);
 
     // Vector of VAR regressors (equal for all equations but in different positions)
-    rowvec var_regs = get_var_regressors(Y, t, p, K); // Dim K*p
+    arma::rowvec var_regs = get_var_regressors(Y, t, p, K); // Dim K*p
 
     for (int k = 0; k < K; k++) {
       // 1. Insert VAR regressors in the right block
@@ -604,13 +604,13 @@ List estimate_varma_gls_cpp(arma::mat Y, arma::mat U, arma::mat SigmaU_inv,
 
     // Cumulate GLS: A += Z_t.t() * SigmaU_inv * Z_t
     // Cumulate b:   b += Z_t.t() * SigmaU_inv * y_t
-    mat W = Z_t.t() * SigmaU_inv;
+    arma::mat W = Z_t.t() * SigmaU_inv;
     A += W * Z_t;
     b += W * Y.row(t).t();
   }
 
   // Least squares solution
-  vec gamma_hat = solve(A, b);
+  arma::vec gamma_hat = solve(A, b);
 
   return List::create(Named("coefficients") = gamma_hat,
                       Named("A_matrix") = A); // Approx inverse Fisher information
@@ -979,8 +979,8 @@ arma::cube autocov_an_cpp(arma::cube phi,  arma::cube theta,
   // 2. Setup the Linear System for Gamma(0) ... Gamma(p)
   // System dimension: (p+1) matrices of size m x m
   int sys_dim = m * m * (p + 1);
-  mat A = eye(sys_dim, sys_dim);
-  vec b = zeros(sys_dim);
+  arma::mat A = eye(sys_dim, sys_dim);
+  arma::vec b = zeros(sys_dim);
 
   for (int h = 0; h <= p; ++h) {
     // Build RHS: sum_{j=h}^q Theta_j Sigma Psi_{j-h}'
@@ -1015,7 +1015,7 @@ arma::cube autocov_an_cpp(arma::cube phi,  arma::cube theta,
   }
 
   // 3. Solve the system (vec_gamma contains Gamma_0 to Gamma_p)
-  vec vec_gamma = solve(A, b);
+  arma::vec vec_gamma = solve(A, b);
 
   // 4. Populate output cube and extend via AR recursion
   cube gamma_out(m, m, maxlag + 1, fill::zeros);
@@ -1145,23 +1145,23 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
                           int max_lag = 0)
 {
    // ---- Unpack inputs ----
-   int p = 0, q = 0;
-   cube AR, MA_raw;
-   if (ar_in.isNotNull()) { AR     = Rcpp::as<cube>(ar_in); p = AR.n_slices; }
-   if (ma_in.isNotNull()) { MA_raw = Rcpp::as<cube>(ma_in); q = MA_raw.n_slices; }
+  int p = 0, q = 0;
+  arma::cube AR, MA_raw;
+  if (ar_in.isNotNull()) { AR     = Rcpp::as<cube>(ar_in); p = AR.n_slices; }
+  if (ma_in.isNotNull()) { MA_raw = Rcpp::as<cube>(ma_in); q = MA_raw.n_slices; }
 
-   if (p == 0 && q == 0)
-     Rcpp::stop("At least one of ar_in or ma_in must be non-NULL and non-empty.");
+  if (p == 0 && q == 0)
+    Rcpp::stop("At least one of ar_in or ma_in must be non-NULL and non-empty.");
 
    const int m = (p > 0) ? (int)AR.n_rows : (int)MA_raw.n_rows;
 
    // A: zero-padded cube used when p=0 (satisfies build_C_coefs signature)
-   cube A(m, m, std::max(p, 1), fill::zeros);
+   arma::cube A(m, m, std::max(p, 1), fill::zeros);
    for (int k = 0; k < p; k++)
      A.slice(k) = AR.slice(k);
 
    // B: prepend B_0 = I; B.slice(k) = B_k for k = 0..q
-   cube B(m, m, q + 1, fill::zeros);
+   arma::cube B(m, m, q + 1, fill::zeros);
    B.slice(0).eye();
    for (int k = 1; k <= q; k++)
      B.slice(k) = MA_raw.slice(k - 1);
@@ -1169,10 +1169,10 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
    // ---- MA-infinity coefficients ----
    const int pe   = std::max(p, 1);   // effective AR order (>= 1 to avoid empty system)
    const int maxC = std::max({p, q, max_lag}) + 2;
-   const cube C_inf = build_C_coefs(A, B, maxC);
+   const arma::cube C_inf = build_C_coefs(A, B, maxC);
 
    // ---- NC* right-hand side ----
-   const mat NCstar = build_NC_star(B, C_inf, pe, q, cov);
+   const arma::mat NCstar = build_NC_star(B, C_inf, pe, q, cov);
 
    // ---- Vec-form linear system for Gamma_0 ... Gamma_pe ----
    //
@@ -1201,15 +1201,15 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
    const int sz_vec = m2 * (pe + 1);
 
    // Commutation matrix: Wm(i*m+j, j*m+i) = 1
-   mat Wm(m2, m2, fill::zeros);
+   arma::mat Wm(m2, m2, fill::zeros);
    for (int i = 0; i < m; i++)
      for (int j = 0; j < m; j++)
        Wm(i * m + j, j * m + i) = 1.0;
 
    const mat I_m(m, m, fill::eye);
 
-   mat Lv(sz_vec, sz_vec, fill::eye);
-   vec Rv(sz_vec, fill::zeros);
+   arma::mat Lv(sz_vec, sz_vec, fill::eye);
+   arma::vec Rv(sz_vec, fill::zeros);
 
    for (int tau = 0; tau <= pe; tau++)
      Rv.subvec(tau * m2, (tau + 1) * m2 - 1) =
@@ -1228,13 +1228,13 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
    }
 
    // ---- Solve ----
-   const vec gam_vec = solve(Lv, Rv);
+   const arma::vec gam_vec = solve(Lv, Rv);
 
    // ---- Unpack Gamma_0 ... Gamma_pe ----
    const int n_init = pe + 1;
    std::vector<mat> Gamma(std::max(n_init, max_lag + 1));
    for (int tau = 0; tau <= pe; tau++) {
-     const vec gv = gam_vec.subvec(tau * m2, (tau + 1) * m2 - 1);
+     const arma::vec gv = gam_vec.subvec(tau * m2, (tau + 1) * m2 - 1);
      Gamma[tau] = reshape(gv, m, m).t();   // reshape gives Gamma_tau^T, .t() inverts
    }
 
@@ -1242,12 +1242,13 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
    // Gamma_tau = sum_{k=1}^p A_k Gamma_{tau-k} + sum_{j=tau}^q B_j Sigma C_{j-tau}^T
    for (int tau = n_init; tau <= max_lag; tau++) {
      mat G(m, m, fill::zeros);
-     for (int k = 1; k <= p; k++)
-       if (tau - k >= 0)
-         G += A.slice(k - 1) * Gamma[tau - k];
-       for (int j = tau; j <= q; j++)
-         G += B.slice(j) * cov * C_inf.slice(j - tau).t();
-       Gamma[tau] = G;
+     for (int k = 1; k <= p; k++) {
+       if (tau - k >= 0) G += A.slice(k - 1) * Gamma[tau - k];
+     }
+     for (int j = tau; j <= q; j++) {
+       G += B.slice(j) * cov * C_inf.slice(j - tau).t();
+     }
+     Gamma[tau] = G;
    }
 
    // ---- Pack output ----
@@ -1255,4 +1256,95 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
    for (int k = 0; k <= max_lag; k++)
      out.slice(k) = Gamma[k];
    return out;
+}
+
+
+// Filter a time series with the inverse of the MA polynomial
+// Solves: (I + Theta_1 L + ... + Theta_q L^q) X = Input,
+// Thus: X_t = Input_t - sum_j Theta_j X_{t-j}
+mat filter_series_inverse(const arma::mat& Input, const arma::cube& Theta_cube,
+                          int q, int K) {
+  int T = Input.n_rows;
+  arma::mat X(T, K, fill::zeros);
+
+  for (int t = 0; t < T; t++) {
+    arma::vec val = Input.row(t).t();
+    for (int j = 1; j <= q; j++) {
+      if (t - j >= 0) {
+        val -= Theta_cube.slice(j - 1) * X.row(t - j).t();
+      }
+    }
+    X.row(t) = val.t();
+  }
+  return X;
+}
+
+// Gauss-Newton one-step optimization for VARMA(p, 1)
+//   Y_t = [c] + Phi_1 Y_{t-1} + ... + Phi_p Y_{t-p} + E_t + Theta_1 E_{t-1} + ... + Theta_q E_{t-q}
+//
+// Phi_cube  : cube K x K x p (slice i-1 = Phi_i)
+// Theta_cube: cube K x K x q (slice j-1 = Theta_j)
+// intercept : if true, c_vec (K x 1) is subtracted when computing the resid
+//             and we add a scalar regressor, 1, at the end of z_t
+//
+// Layout rows of ZZ/ZE (and of Delta = ZZ^{-1} ZE in R):
+//   [K*p rows for Phi | K*q rows for Theta | 1 row for c (if intercept=true)]
+// [[Rcpp::export]]
+List rby_optimization_step(arma::mat Y, arma::cube Phi_cube, arma::cube Theta_cube,
+                           int p, int q, bool intercept, arma::vec c_vec) {
+  int T = Y.n_rows;
+  int K = Y.n_cols;
+  int t_start = std::max(p, q);
+  int n_reg = K * p + K * q + (intercept ? 1 : 0);
+
+  // 1. Compute resid E_t: E_t = Y_t - [c] - sum Phi_i Y_{t-i} - sum Theta_j E_{t-j}
+  arma::mat E(T, K, fill::zeros);
+
+  for (int t = t_start; t < T; t++) {
+    arma::vec e_t = Y.row(t).t();
+
+    if (intercept) {
+      e_t -= c_vec;
+    }
+    for (int i = 1; i <= p; i++) {
+      e_t -= Phi_cube.slice(i - 1) * Y.row(t - i).t();
+    }
+    for (int j = 1; j <= q; j++) {
+      e_t -= Theta_cube.slice(j - 1) * E.row(t - j).t();
+    }
+    E.row(t) = e_t.t();
+  }
+
+  // 2. Aux series filtered by Theta(L)^{-1}
+  //    U_aux: filtered Y -> regressors for the AR part
+  //    V_aux: filtered E -> regressors for the MA part
+  mat U_aux = filter_series_inverse(Y, Theta_cube, q, K);
+  mat V_aux = filter_series_inverse(E, Theta_cube, q, K);
+
+  // 3. Build the Gauss-Newton matrices ZZ e ZE
+  //    z_t = [U_{t-1}',...,U_{t-p}', V_{t-1}',...,V_{t-q}', 1 (scalar) if intercept]
+  arma::mat ZZ(n_reg, n_reg, fill::zeros);
+  arma::mat ZE(n_reg, K,     fill::zeros);
+
+  for (int t = t_start; t < T; t++) {
+    rowvec z_t(n_reg);
+    int idx = 0;
+
+    for (int i = 1; i <= p; i++) {
+      z_t.subvec(idx, idx + K - 1) = U_aux.row(t - i);
+      idx += K;
+    }
+    for (int j = 1; j <= q; j++) {
+      z_t.subvec(idx, idx + K - 1) = V_aux.row(t - j);
+      idx += K;
+    }
+    if (intercept) {
+      z_t[idx] = 1.0;
+    }
+
+    ZZ += z_t.t() * z_t;
+    ZE += z_t.t() * E.row(t);
+  }
+
+  return List::create(Named("ZZ") = ZZ, Named("ZE") = ZE, Named("E") = E);
 }

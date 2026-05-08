@@ -226,6 +226,23 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// rby_optimization_step
+List rby_optimization_step(arma::mat Y, arma::cube Phi_cube, arma::cube Theta_cube, int p, int q, bool intercept, arma::vec c_vec);
+RcppExport SEXP _varma_rby_optimization_step(SEXP YSEXP, SEXP Phi_cubeSEXP, SEXP Theta_cubeSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP, SEXP c_vecSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< arma::mat >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< arma::cube >::type Phi_cube(Phi_cubeSEXP);
+    Rcpp::traits::input_parameter< arma::cube >::type Theta_cube(Theta_cubeSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type q(qSEXP);
+    Rcpp::traits::input_parameter< bool >::type intercept(interceptSEXP);
+    Rcpp::traits::input_parameter< arma::vec >::type c_vec(c_vecSEXP);
+    rcpp_result_gen = Rcpp::wrap(rby_optimization_step(Y, Phi_cube, Theta_cube, p, q, intercept, c_vec));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_varma_varma_acf", (DL_FUNC) &_varma_varma_acf, 4},
@@ -243,6 +260,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_autocov_mc_cpp", (DL_FUNC) &_varma_autocov_mc_cpp, 4},
     {"_varma_autocov_an_cpp", (DL_FUNC) &_varma_autocov_an_cpp, 4},
     {"_varma_autocov_mi_cpp", (DL_FUNC) &_varma_autocov_mi_cpp, 4},
+    {"_varma_rby_optimization_step", (DL_FUNC) &_varma_rby_optimization_step, 7},
     {NULL, NULL, 0}
 };
 

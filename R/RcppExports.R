@@ -102,3 +102,7 @@ autocov_mi_cpp <- function(ar_in, ma_in, cov, max_lag = 0L) {
     .Call(`_varma_autocov_mi_cpp`, ar_in, ma_in, cov, max_lag)
 }
 
+rby_optimization_step <- function(Y, Phi_cube, Theta_cube, p, q, intercept, c_vec) {
+    .Call(`_varma_rby_optimization_step`, Y, Phi_cube, Theta_cube, p, q, intercept, c_vec)
+}
+
