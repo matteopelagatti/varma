@@ -496,6 +496,9 @@ arma::mat var_filter(const arma::mat& X, const arma::cube& A, Rcpp::Nullable<arm
   return Y;
 }
 
+// ----------------------------------------------------------------------------
+// Helper functions for Dufour & Pelletier (2022) VARMA estimation ------------
+// ----------------------------------------------------------------------------
 
 //' Helper function for building the row of Z relative to the VAR part
 //'
@@ -1258,6 +1261,9 @@ arma::cube autocov_mi_cpp(Rcpp::Nullable<arma::cube> ar_in,
    return out;
 }
 
+// ----------------------------------------------------------------------------
+// Helper functions for Reinsel, Basu, Yap (1992) VARMA estimation ------------
+// ----------------------------------------------------------------------------
 
 // Filter a time series with the inverse of the MA polynomial
 // Solves: (I + Theta_1 L + ... + Theta_q L^q) X = Input,
@@ -1348,3 +1354,4 @@ List rby_optimization_step(arma::mat Y, arma::cube Phi_cube, arma::cube Theta_cu
 
   return List::create(Named("ZZ") = ZZ, Named("ZE") = ZE, Named("E") = E);
 }
+

@@ -969,7 +969,7 @@ fit_varma_dma <- function(Y, p=1, q=1, intercept = TRUE,
 #' df.residual, qr, n_iter, res_cov.
 #'
 #' @export
-fit_varma_ihr <- function(Y, p=1, q=1, intercept = TRUE,
+fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
                           maxdiff = 1.0e-5, maxit = 100,
                           r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
                           ret = c("varma", "regression")) {
@@ -1603,10 +1603,14 @@ fit_varma_skf <- function(Y, p, q, intercept = TRUE, maxit = 100) {
 #' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
 #' @param maxit integer, maximum number of GLS iterations.
 #' @param tol tolerance to determine convergence.
+#' @param r order of the long VAR(r) for approximating the residuals at first step
+#' @param verbose logical, if TRUE some textual output is printed during execution
 #' @return A varma object.
 #' @export
 fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
-                          maxit = 500, tol = 1e-5) {
+                          maxit = 500, tol = 1e-5,
+                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          verbose = FALSE) {
   fn_name <- as.character(sys.call()[[1]])
   if (!is.matrix(Y)) Y <- as.matrix(Y)
   n <- nrow(Y)
@@ -1623,12 +1627,11 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
   }
 
   # --- STEP 1: Hannan-Rissanen ---
-  p_long   <- max(floor(log(n)^2), p + q + 1)
-  X <- embed(Y_eff, p_long+1)[, -seq_len(m)]
-  hr_reg <- lm.fit(x = X, y = Y_eff[-seq_len(p_long), ])
+  X <- stats::embed(Y_eff, r+1)[, -seq_len(m)]
+  hr_reg <- stats::lm.fit(x = X, y = Y_eff[-seq_len(r), ])
   u_long <- hr_reg$resid
 
-  n_start_hr <- p_long + max(p, q) + 1
+  n_start_hr <- r + max(p, q) + 1
   Y_hr <- Y_eff[n_start_hr:n, , drop = FALSE]
 
   X_hr <- NULL
@@ -1636,12 +1639,12 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
     X_hr <- cbind(X_hr, Y_eff[(n_start_hr - i):(n - i), , drop = FALSE])
   }
   for (j in seq_len(q)) {
-    lag_start <- (n_start_hr - j) - p_long
-    lag_end   <- (n   - j) - p_long
+    lag_start <- (n_start_hr - j) - r
+    lag_end   <- (n   - j) - r
     X_hr <- cbind(X_hr, u_long[lag_start:lag_end, , drop = FALSE])
   }
 
-  B_hat <- solve(crossprod(X_hr), crossprod(X_hr, Y_hr))
+  B_hat <- stats::lm.fit(y = Y_hr, x = X_hr)$coefficients
 
   Phi_arr   <- array(0, dim = c(m, m, p))
   Theta_arr <- array(0, dim = c(m, m, q))
@@ -1712,13 +1715,13 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
     # Check convergence based on effctive step (lambda * Delta)
     conv_measure <- lambda * max(abs(Delta))
     if (conv_measure < tol) {
-      cat(sprintf("Convergence reached at iteration %d. Max Delta: %f\n",
-                  iter, conv_measure))
+      if (verbose) cat(sprintf("Convergence reached at iteration %d. Max Delta: %f\n",
+                               iter, conv_measure))
       break
     }
 
-    if (iter %% 5 == 0) cat(sprintf("Iter %d: Max Delta = %f\n",
-                                    iter, conv_measure))
+    if (verbose && (iter %% 5 == 0)) cat(sprintf("Iter %d: Max Delta = %f\n",
+                                         iter, conv_measure))
   }
 
   # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
@@ -1751,6 +1754,132 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
       npar              = npar,
       y                 = Y,
       residuals         = E_final
+    ),
+    class = "varma"
+  )
+}
+
+#' Fit a VARMA(p,q) Model using the iterated GLS method
+#'
+#' Estimates the parameters of a VARMA(p,q) model by maximizing the
+#' likelihood iterating GLS step as in Reinsel, Basu and Yap (1992).
+#'
+#' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
+#' @param p the autoregressive order.
+#' @param q the moving average order.
+#' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
+#' @param type string, either "diagonal" or "final" to select the representation.
+#' @param r order of the long VAR(r) for approximating the residuals at first step
+#' @param verbose logical, if TRUE some textual output is printed during execution
+#'
+#' @return A varma object.
+#' @export
+fit_varma_dpe <- function(Y, p = 1, q = 1, intercept = TRUE,
+                          type = c("diagonal", "final"),
+                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          verbose = FALSE) {
+  fn_name <- as.character(sys.call()[[1]])
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  n <- nrow(Y)
+  m <- ncol(Y)
+  if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
+
+  # When intercept = TRUE, we work on centered Y.
+  if (intercept) {
+    Y_mean <- colMeans(Y)
+    Y_eff  <- Y - rep(Y_mean, each = n)
+  } else {
+    Y_mean <- NULL
+    Y_eff  <- Y
+  }
+
+  # --- STEP 1: Long VAR to estimate the residuals ---
+  X <- stats::embed(Y_eff, r+1)[, -seq_len(m)]
+  hr_reg <- stats::lm.fit(x = X, y = Y_eff[-seq_len(r), ])
+  U_hat  <- hr_reg$resid
+
+
+  # Align Y and U. The VAR loses initial observations.
+  # For step 2, we need Y and U sync'd.
+  # U_hat starts at t = r + 1
+  Y_step2 <- Y[(r + 1):n, ]
+
+  # Residuals covariance matrix (Sigma_U) and its inverse
+  Sigma_U <- crossprod(U_hat)/(n-r)
+  Sigma_U_inv <- chol2inv(chol(Sigma_U))
+
+  # --- STEP 2: GLS via Rcpp ---
+  res_cpp <- estimate_varma_gls_cpp(Y_step2, U_hat, Sigma_U_inv, p, q, type)
+  coefs_vec <- res_cpp$coefficients
+  Phi_hat <- array(0, c(m, m, p))
+
+  # --- Formatting the Output ---
+  # Making the Phi e Theta arrays from the coefficient vector
+
+  # 1. Extract Phi
+  # The vector has all the phi's of eq 1, then eq 2, ...
+  # Every block eq has (m*p) elements.
+  n_phi <- m * m * p
+  phi_vec <- coefs_vec[seq_len(n_phi)]
+
+  # Parsing dei coefficienti Phi
+  if (p > 0) {
+    idx <- 1
+    for (k_eq in 1:m) { # For each equation
+      for (lag in 1:p) {
+        for (k_var in 1:m) { # Coefficient of the variabile k_var at lag 'lag'
+          Phi_hat[k_eq, k_var, lag] <- phi_vec[idx]
+          idx <- idx + 1
+        }
+      }
+    }
+  }
+
+  # 2. Extract Theta
+  theta_vec <- coefs_vec[(n_phi + 1):length(coefs_vec)]
+  Theta_hat <- array(0, c(m, m, q))
+
+  if (type == "diagonal") {
+    # Theta is diagonal, but every diagonal element is different
+    # Vector structure: [theta_11(L), theta_22(L), ...]
+    idx_t <- 1
+    for (k in 1:m) {
+      for (lag in 1:q) {
+        Theta_hat[k, k, lag] <- theta_vec[idx_t]
+        idx_t <- idx_t + 1
+      }
+    }
+  } else if (type == "final") {
+    # Theta is scalar (diagonal matrix with same values on the diagonal)
+    # Vector structure: [theta_scalar(lag1), theta_scalar(lag2)...]
+    for (lag in 1:q) {
+      val <- theta_vec[lag]
+      diag(Theta_hat[,,lag]) <- val
+    }
+  }
+
+  # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
+  if (intercept) {
+    I_minus_Phi <- diag(m)
+    for (i in 1:p) I_minus_Phi <- I_minus_Phi - Phi_hat[, , i]
+    c_curr <- drop(I_minus_Phi %*% Y_mean)
+  }
+
+  structure(
+    list(
+      intercept         = if (intercept) c_curr else NULL,
+      mean              = Y_mean,
+      ar                = as.array(Phi_hat),
+      ma                = as.array(Theta_hat),
+      cov               = Sigma_U,
+      estimation_method = fn_name,
+      loglik            = -(n * m / 2) * (log(2 * pi) + 1) -
+        (n / 2) * log(det(Sigma_U)),
+      n                 = n,
+      nobs              = sum(!is.na(Y_step2)),
+      npar              = length(coefs_vec),
+      y                 = Y,
+      residuals         = U_hat
     ),
     class = "varma"
   )
