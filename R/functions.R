@@ -1762,7 +1762,7 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' Fit a VARMA(p,q) Model using the iterated GLS method
 #'
 #' Estimates the parameters of a VARMA(p,q) model by maximizing the
-#' likelihood iterating GLS step as in Reinsel, Basu and Yap (1992).
+#' likelihood iterating GLS step as in Dufour and Pelletier (2022).
 #'
 #' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
 #' @param p the autoregressive order.
@@ -1778,7 +1778,8 @@ fit_varma_dpe <- function(Y, p = 1, q = 1, intercept = TRUE,
                           type = c("diagonal", "final"),
                           r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
                           verbose = FALSE) {
-  fn_name <- as.character(sys.call()[[1]])
+  type <- match.arg(type)
+  fn_name <- paste0(as.character(sys.call()[[1]]), "_", type)
   if (!is.matrix(Y)) Y <- as.matrix(Y)
   n <- nrow(Y)
   m <- ncol(Y)
