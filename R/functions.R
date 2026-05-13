@@ -109,6 +109,7 @@ dim.varma <- function(x) {
     out[1] <- dim(x$ma)[1]
     out[3] <- dim(x$ma)[3]
   }
+  if (out[1] == 0 && !is.null(x$cov)) out[1] <- nrow(x$cov)
   out
 }
 
@@ -156,12 +157,14 @@ print.varma <- function(x, ...) {
       print(M)
     }
   }
-  cat("\nCovariance matrix:\n")
-  dimnames(x$cov) <- list(
-    paste0("e", 1:mpq[1]),
-    paste0("e", 1:mpq[1])
-  )
-  print(x$cov)
+  if (!is.null(x$cov)) {
+    cat("\nCovariance matrix:\n")
+    dimnames(x$cov) <- list(
+      paste0("e", 1:mpq[1]),
+      paste0("e", 1:mpq[1])
+    )
+    print(x$cov)
+  }
   if (!is.null(x$estimation_method)) {
     cat("\nEstimated using", x$estimation_method, "\n")
   }
@@ -451,11 +454,18 @@ sim_varma <- function(varma, n = 200, burn_in = 100, var_in_rows = FALSE) {
     P <- chol(varma$cov)
     eps <- crossprod(P, matrix(stats::rnorm((n+burn_in)*mpq[1]), mpq[1], n+burn_in))
   }
-  if (!is.null(varma$intercept)) {
-    eps <- eps + varma$intercept
-  }
-  # simulate the VARMA process
+  # simulate the VARMA process (zero-mean; mean is added below)
   Y <- sim_varma_rcpp(ar_array, ma_array, eps)
+  # add the process mean: mu = (I - A_1 - ... - A_p)^{-1} intercept
+  if (!is.null(varma$intercept)) {
+    I_minus_A <- diag(mpq[1])
+    if (mpq[2] > 0) {
+      for (i in seq_len(mpq[2])) I_minus_A <- I_minus_A - varma$ar[,,i]
+    }
+    Y <- Y + solve(I_minus_A, varma$intercept)
+  } else if (!is.null(varma$mean)) {
+    Y <- Y + varma$mean
+  }
   # return simulated data in requested form
   if (burn_in > 0) { # if there is a burn-in perido
     if (var_in_rows) { # if vars are in rows
@@ -834,7 +844,7 @@ fit_varma_dma <- function(Y, p=1, q=1, intercept = TRUE,
       paste0("y", 1:m)
     )
     reg1$res_cov <- crossprod(reg1$residuals, reg1$residuals)/reg1$df.residual
-    if (ret == "reg") {
+    if (ret == "regression") {
       return(reg1)
     } else {
       estim <- t(reg1$coefficients)
@@ -997,7 +1007,7 @@ fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
       paste0("y", 1:m)
     )
     reg1$res_cov <- crossprod(reg1$residuals, reg1$residuals)/reg1$df.residual
-    if (ret == "reg") {
+    if (ret == "regression") {
       return(reg1)
     } else {
       estim <- t(reg1$coefficients)
@@ -1175,10 +1185,8 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
     ylist <- lapply(1:m, function(i) if (p>0) Y[-(1:p), i, drop = FALSE] else Y[, i, drop = FALSE])
     xlist <- lapply(1:m, function(i) X[, not_zero[i, ], drop = FALSE])
     beta  <- sur_cpp(xlist, ylist, res_cov)
-    for (i in 1:m) {
-      coeff[t(not_zero)] <- beta
-      estim <- t(coeff)
-    }
+    coeff[t(not_zero)] <- beta
+    estim <- t(coeff)
   }
   if (intercept) {
     cnst  <- estim[,  1]
@@ -1362,7 +1370,7 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
   # matrices for the ss form
   mT <- matrix(0, m*r, m*r)
   mr <- m*r
-  if (q > 0) diag(mT[1:(mr - m), (m+1):mr]) <- 1
+  if (r > 1) diag(mT[1:(mr - m), (m+1):mr]) <- 1
   mR <- rbind(diag(m), matrix(0, mr-m, m))
   mQ <- ih$cov
   mZ <- cbind(diag(1, m, m), matrix(0, m, mr -m))
@@ -2113,10 +2121,12 @@ logLik.varma <- function(object, ...) {
     warning("There is no log-likelihood in the varma object\n")
     return(structure(NA, df = NA))
   }
+  npar_intercept <- if (!is.null(object$intercept)) length(object$intercept) else
+                    if (!is.null(object$mean))      length(object$mean)      else 0L
   structure(
     object$loglik,
     df = length(object$ar) + length(object$ma) +
-      prod(dim(object$cov) + c(0, 1))/2
+      prod(dim(object$cov) + c(0, 1))/2 + npar_intercept
   )
 }
 
