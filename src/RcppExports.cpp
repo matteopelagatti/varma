@@ -52,32 +52,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// solve_riccati
-arma::mat solve_riccati(const arma::mat& T, const arma::mat& R, const arma::mat& Q);
-RcppExport SEXP _varma_solve_riccati(SEXP TSEXP, SEXP RSEXP, SEXP QSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const arma::mat& >::type T(TSEXP);
-    Rcpp::traits::input_parameter< const arma::mat& >::type R(RSEXP);
-    Rcpp::traits::input_parameter< const arma::mat& >::type Q(QSEXP);
-    rcpp_result_gen = Rcpp::wrap(solve_riccati(T, R, Q));
-    return rcpp_result_gen;
-END_RCPP
-}
-// solve_syl
-arma::mat solve_syl(const arma::mat& A, const arma::mat& B, const arma::mat& C);
-RcppExport SEXP _varma_solve_syl(SEXP ASEXP, SEXP BSEXP, SEXP CSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const arma::mat& >::type A(ASEXP);
-    Rcpp::traits::input_parameter< const arma::mat& >::type B(BSEXP);
-    Rcpp::traits::input_parameter< const arma::mat& >::type C(CSEXP);
-    rcpp_result_gen = Rcpp::wrap(solve_syl(A, B, C));
-    return rcpp_result_gen;
-END_RCPP
-}
 // solve_dlyap_iter
 arma::mat solve_dlyap_iter(const arma::sp_mat& T, const arma::mat& C, int max_iter, double tol);
 RcppExport SEXP _varma_solve_dlyap_iter(SEXP TSEXP, SEXP CSEXP, SEXP max_iterSEXP, SEXP tolSEXP) {
@@ -248,8 +222,6 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_varma_acf", (DL_FUNC) &_varma_varma_acf, 4},
     {"_varma_irf_varma_rcpp", (DL_FUNC) &_varma_irf_varma_rcpp, 4},
     {"_varma_sim_varma_rcpp", (DL_FUNC) &_varma_sim_varma_rcpp, 3},
-    {"_varma_solve_riccati", (DL_FUNC) &_varma_solve_riccati, 3},
-    {"_varma_solve_syl", (DL_FUNC) &_varma_solve_syl, 3},
     {"_varma_solve_dlyap_iter", (DL_FUNC) &_varma_solve_dlyap_iter, 4},
     {"_varma_kalmanLogLik", (DL_FUNC) &_varma_kalmanLogLik, 7},
     {"_varma_kalman", (DL_FUNC) &_varma_kalman, 9},

@@ -13,14 +13,6 @@ sim_varma_rcpp <- function(A, M, eps) {
     .Call(`_varma_sim_varma_rcpp`, A, M, eps)
 }
 
-solve_riccati <- function(T, R, Q) {
-    .Call(`_varma_solve_riccati`, T, R, Q)
-}
-
-solve_syl <- function(A, B, C) {
-    .Call(`_varma_solve_syl`, A, B, C)
-}
-
 solve_dlyap_iter <- function(T, C, max_iter = 200L, tol = 1e-10) {
     .Call(`_varma_solve_dlyap_iter`, T, C, max_iter, tol)
 }
