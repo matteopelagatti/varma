@@ -1351,59 +1351,73 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
   # Vompute res at initial values (out of loop to reuse it)
   res <- rby_optimization_step(Y_eff, Phi_arr, Theta_arr, p, q, FALSE, numeric(0))
 
+  # LM damping parameter: 0 = pure Gauss-Newton; increased automatically
+  # when ZZ is ill-conditioned or the GN step is not a descent direction.
+  mu    <- 0.0
+  n_reg <- nrow(res$ZZ)
+
   for (iter in 1:maxit) {
 
-    ZZ <- res$ZZ
-    ZE <- res$ZE
+    ZZ       <- res$ZZ
+    ZE       <- res$ZE
     ssr_curr <- sum(res$E[(t_start + 1L):n, ]^2)
 
-    # Full Gauss-Newton step (lambda = 1)
-    Delta <- tryCatch(
-      solve(ZZ, ZE),
-      error = function(e) solve(ZZ + diag(1e-6, nrow(ZZ)), ZE)
-    )
-
-    # Backtracking line search: halves lambda until SSR decreases.
-    # It assures the descent and avoid divergence for too large steps
-    # (see Reinsel et al. 1992, Section 3, eq. 14).
-    lambda <- 1.0
+    # Levenberg-Marquardt outer loop: increase diagonal damping mu until
+    # Delta = solve(ZZ + mu*I, ZE) produces an actual SSR decrease.
     step_accepted <- FALSE
-    for (ls in 1:20) {
-      Phi_trial   <- Phi_arr
-      Theta_trial <- Theta_arr
-      idx_ls <- 0L
-      for (i in seq_len(p)) {
-        Phi_trial[, , i] <- Phi_arr[, , i] +
-          lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
-        idx_ls <- idx_ls + m
+    for (lm_try in 0:8) {
+
+      ZZ_reg <- ZZ + diag(mu, n_reg)
+      Delta  <- tryCatch(solve(ZZ_reg, ZE), error = function(e) NULL)
+
+      if (is.null(Delta)) {
+        mu <- if (mu == 0) 1e-4 * mean(diag(ZZ)) else mu * 10
+        next
       }
-      for (j in seq_len(q)) {
-        Theta_trial[, , j] <- Theta_arr[, , j] +
-          lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
-        idx_ls <- idx_ls + m
+
+      # Backtracking line search: halve lambda until SSR decreases
+      # (Reinsel et al. 1992, Section 3, eq. 14).
+      lambda <- 1.0
+      for (ls in 1:20) {
+        Phi_trial   <- Phi_arr
+        Theta_trial <- Theta_arr
+        idx_ls <- 0L
+        for (i in seq_len(p)) {
+          Phi_trial[, , i] <- Phi_arr[, , i] +
+            lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
+          idx_ls <- idx_ls + m
+        }
+        for (j in seq_len(q)) {
+          Theta_trial[, , j] <- Theta_arr[, , j] +
+            lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
+          idx_ls <- idx_ls + m
+        }
+        res_trial <- rby_optimization_step(Y_eff, Phi_trial, Theta_trial, p, q,
+                                           FALSE, numeric(0))
+        if (sum(res_trial$E[(t_start + 1L):n, ]^2) < ssr_curr) {
+          step_accepted <- TRUE
+          break
+        }
+        lambda <- lambda * 0.5
       }
-      res_trial <- rby_optimization_step(Y_eff, Phi_trial, Theta_trial, p, q,
-                                         FALSE, numeric(0))
-      if (sum(res_trial$E[(t_start + 1L):n, ]^2) < ssr_curr) {
-        step_accepted <- TRUE
-        break
-      }
-      lambda <- lambda * 0.5
+
+      if (step_accepted) break
+
+      # Step did not descend: increase LM damping and try again.
+      mu <- if (mu == 0) 1e-4 * mean(diag(ZZ)) else mu * 10
     }
 
-    # Only accept the step when SSR actually decreased; otherwise keep current
-    # parameters and stop (line search exhausted without descent).
     if (step_accepted) {
       Phi_arr   <- Phi_trial
       Theta_arr <- Theta_trial
       res       <- res_trial
+      mu        <- mu / 10   # Relax damping after a successful step.
     } else {
       if (verbose) cat(sprintf("Line search failed at iteration %d; stopping.\n", iter))
       break
     }
 
-    # Check convergence based on the GN step size (independent of lambda so
-    # that a small lambda from line-search halvings cannot trigger false convergence).
+    # Convergence: step size independent of lambda and mu.
     conv_measure <- max(abs(Delta))
     if (conv_measure < tol) {
       if (verbose) cat(sprintf("Convergence reached at iteration %d. Max Delta: %f\n",
