@@ -355,17 +355,20 @@ double kalman(const arma::sp_mat& T,
        continue;
      }
      // y partially missing
-     // y0 = Yt.col(t).eval()(notna);
-     v.col(t).eval()(notna) = Yt.col(t).eval()(notna) - at.col(t).eval()(notna);
+     arma::vec v_t = Yt.col(t).elem(notna) - at.col(t).elem(notna); // fix 6: proper residual
+     v.col(t).elem(notna) = v_t;                                      // fix 6: store residuals
      PZt = Pt.slice(t).cols(notna);
-     F.slice(t) = Pt.slice(t)(notna, notna);
-     pass = inv_sympd(iF, F.slice(t));
+     arma::mat F_obs = Pt.slice(t)(notna, notna);
+     F.slice(t).zeros();
+     F.slice(t).submat(0, 0, notna.n_elem-1, notna.n_elem-1) = F_obs;
+     arma::mat iF_obs(notna.n_elem, notna.n_elem);
+     pass = inv_sympd(iF_obs, F_obs);
      if (!pass) return -datum::inf;
-     loglik += (real(log_det(F.slice(t))) + v.row(t).t()*iF*v.row(t)).eval()(0,0) + notna.n_elem*M_LOG2PI;
+     loglik += (real(log_det(F_obs)) + (v_t.t()*iF_obs*v_t).eval()(0,0)) + notna.n_elem*M_LOG2PI; // fix 5
      TPZt = T*PZt;
-     K = TPZt*iF;
-     at.col(t+1) = T*at.col(t) + K*v.col(t);
-     Pt.slice(t+1) = T*Pt.slice(t)*Tt - K*F.slice(t)*K.t() + RQRt;
+     K = TPZt*iF_obs;
+     at.col(t+1) = T*at.col(t) + K*v_t;
+     Pt.slice(t+1) = T*Pt.slice(t)*Tt - K*F_obs*K.t() + RQRt;
    }
 
    // The 'if (update_state)' block at the end is no longer needed,
