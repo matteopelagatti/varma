@@ -791,166 +791,6 @@ autocov_an <- function(varma, maxlag = 10) {
   autocov_an_cpp(varma$ar, varma$ma, varma$cov, maxlag)
 }
 
-#' VARMA estimation in Diagonal MA form using the method of Dufour and Pelletier
-#'
-#' @param Y a (n x m) matrix with the time series.
-#' @param p order of the AR part.
-#' @param q order of the MA part.
-#' @param intercept logical, if TRUE, the model includes an intercept.
-#' @param r integer order of the first step VAR(r) model.
-#' @param ret a character string indicating the type of output: "varma" or "regression".
-#'
-#' @returns If ret = "varma" a varma object, otherwise a list with the following elements:
-#' coefficients, matrix of residuals, fitted.values, effects, weights, rank,
-#' df.residual, qr, n_iter, res_cov.
-#'
-#' @importFrom stats coef
-#' @importFrom utils tail
-#' @export
-fit_varma_dma <- function(Y, p=1, q=1, intercept = TRUE,
-                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
-                          ret = c("varma", "regression")) {
-  fn_name <- as.character(sys.call()[[1]]) # name of the function
-  # input controls
-  if (p < 0) stop("p must be non-negative")
-  if (q < 0) stop("q must be non-negative")
-  if (p == 0 & q == 0) {"p = q = 0: no VARMA model specified"}
-  ret <- match.arg(ret)
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  # basic quantities and variable names
-  m <- ncol(Y)
-  n <- nrow(Y)
-  reg_names <- NULL
-  if (intercept) reg_names <- "cnst"
-  if (p > 0) reg_names <- c(reg_names, paste(paste0("y", 1:m), rep(1:p, each = m), sep = "_"))
-  if (q > 0) reg_names <- c(reg_names, paste(paste0("e", 1:m), rep(1:q, each = m), sep = "_"))
-  # pure VAR
-  if (q < 1) {
-    X <- if (intercept) cbind(1, stats::embed(Y, p+1)[, -(1:m)]) else stats::embed(Y, p+1)[, -(1:m)]
-    reg1 <- stats::lm.fit(X, Y[-(1:p),])
-    reg1$n_iter <- 0
-    dimnames(reg1$coefficients) <- list(
-      reg_names,
-      paste0("y", 1:m)
-    )
-    reg1$res_cov <- crossprod(reg1$residuals, reg1$residuals)/reg1$df.residual
-    if (ret == "reg") {
-      return(reg1)
-    } else {
-      estim <- t(reg1$coefficients)
-      if (intercept) {
-        cnst  <- estim[,  1]
-        estim <- estim[, -1]
-      } else {
-        cnst <- NULL
-      }
-      ar_array <- array(estim[, 1:(p*m)], c(m, m, p))
-      nobs <- prod(dim(reg1$residuals))
-      return(
-        structure(
-          list(
-            intercept = cnst,
-            ar = ar_array,
-            ma = NULL,
-            cov = reg1$res_cov,
-            estimation_method = fn_name,
-            loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-              (nrow(reg1$residuals) / 2) * determinant(reg1$res_cov, logarithm = TRUE)$modulus,
-            n = n,
-            nobs = nobs,
-            npar = length(reg1$coefficients),
-            y = Y,
-            residuals = reg1$residuals
-          ),
-          class = "varma"
-        )
-      )
-    }
-  }
-  # VARMA in Diagonal MA form
-  # 1st step: initial VAR(r)
-  X <- if (intercept) cbind(1, stats::embed(Y, r+1)[, -(1:m)]) else stats::embed(Y, r+1)[, -(1:m)]
-  m1 <- stats::lm.fit(X, Y[-(1:r),])
-  E <- rbind(matrix(0, r, m), m1$residuals)
-  Ylag <- if (p > 0) stats::embed(Y, p+1)[, -(1:m)] else NULL
-  Elag <- rbind(matrix(0, q, m*q), stats::embed(E, q+1)[, -(1:m)])[(p+1):n, ]
-  # 2nd step: SUR estimation
-  Y_list <- as.list(as.data.frame(Y[-(1:p), ]))
-  X_list <- if (intercept) {
-    lapply(1:m, function(i) cbind(1, Ylag, Elag[, seq(i, q*m, m)]))
-  } else {
-    lapply(1:m, function(i) cbind(Ylag, Elag[, seq(i, q*m, m)]))
-  }
-  S <- crossprod(m1$residuals, m1$residuals)/n
-  sur_est <- sur_cpp(X_list, Y_list, S)
-  B <- matrix(sur_est, ncol = m) # each column has the estimates for each time series
-  # 3rd step
-  # Compute new residuals
-  Etilde <- rbind(matrix(0, p, m),
-    sapply(1:m, function(j) Y[-(1:p), j] - X_list[[j]] %*% B[, j])
-  )
-  SS <- crossprod(Etilde)/n
-  # Compute filtered series
-  Theta <- apply(-tail(B, q), 1, diag) |> array(c(m, m, q))
-  YY <- var_filter(Y, Theta)
-  W  <- var_filter(Etilde, Theta)
-  YYlag <- if (p > 0) stats::embed(YY, p+1)[, -(1:m)] else NULL
-  EElag <- rbind(matrix(0, q, m*q), stats::embed(Etilde, q+1)[, -(1:m)])[(p+1):n, ]
-  YY_list <- as.list(as.data.frame((Etilde + YY - W)[-(1:p), ]))
-  XX_list <- if (intercept) {
-    lapply(1:m, function(i) cbind(1, YYlag, EElag[, seq(i, q*m, m)]))
-  } else {
-    lapply(1:m, function(i) cbind(YYlag, EElag[, i]))
-  }
-  sur_est2 <- sur_cpp(XX_list, YY_list, SS)
-  BB <- matrix(sur_est2, ncol = m) # each column has the estimates for each time series
-  # Compute new residuals
-  Efinal <- rbind(matrix(0, p, m),
-                  sapply(1:m, function(j) YY[-(1:p), j] - XX_list[[j]] %*% BB[, j])
-  )
-  SSS <- crossprod(Efinal)/n
-
-  if (ret == "varma") {
-    nobs <- length(Efinal) - p*m
-    if (intercept) {
-      ar_array <- BB[2:(1+m*p), , drop = FALSE] |> t() |> array(c(m, m, p))
-      ma_array <- BB[-(1:(1+m*p)), , drop = FALSE] |> t() |> apply(1, diag) |> array(c(m, m, q))
-    } else {
-      ar_array <- BB[1:(m*p), , drop = FALSE] |> t() |> array(c(m, m, p))
-      ma_array <- BB[-(1:(m*p)), , drop = FALSE] |> apply(1, diag) |> array(c(m, m, q))
-    }
-    structure(
-      list(
-        intercept = if (intercept) BB[1, ] else NULL,
-        ar = ar_array,
-        ma = ma_array,
-        cov = SSS,
-        estimation_method = fn_name,
-        loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-          (nrow(Efinal) / 2) * determinant(SSS, logarithm = TRUE)$modulus,
-        n = nrow(Y),
-        nobs = nobs,
-        npar = length(BB),
-        y = Y,
-        residuals = Efinal
-      ),
-      class = "varma"
-    )
-  } else {
-    list(
-      step2_est = B,
-      step3_est = BB,
-      step2_cov = SS,
-      step3_cov = SSS,
-      step2_resid = Etilde,
-      step3_resid = Efinal,
-      X = YY,
-      W = W,
-      Y_list = YY_list,
-      X_list = XX_list
-    )
-  }
-}
 
 #' VARMA estimation using the iterated Hannan-Rissanen method
 #'
@@ -1759,7 +1599,7 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
   )
 }
 
-#' Fit a VARMA(p,q) Model using the iterated GLS method
+#' Fit a VARMA(p,q) in diagonal form using the iterated GLS method
 #'
 #' Estimates the parameters of a VARMA(p,q) model by maximizing the
 #' likelihood iterating GLS step as in Dufour and Pelletier (2022).
@@ -1767,19 +1607,16 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
 #' @param p the autoregressive order.
 #' @param q the moving average order.
-#' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
-#' @param type string, either "diagonal" or "final" to select the representation.
+#' @param intercept logical, if TRUE an intercept is fitted to the VARMA
 #' @param r order of the long VAR(r) for approximating the residuals at first step
 #' @param verbose logical, if TRUE some textual output is printed during execution
 #'
 #' @return A varma object.
 #' @export
-fit_varma_dpe <- function(Y, p = 1, q = 1, intercept = TRUE,
-                          type = c("diagonal", "final"),
+fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
                           r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
                           verbose = FALSE) {
-  type <- match.arg(type)
-  fn_name <- paste0(as.character(sys.call()[[1]]), "_", type)
+  fn_name <- as.character(sys.call()[[1]])
   if (!is.matrix(Y)) Y <- as.matrix(Y)
   n <- nrow(Y)
   m <- ncol(Y)
@@ -1810,7 +1647,7 @@ fit_varma_dpe <- function(Y, p = 1, q = 1, intercept = TRUE,
   Sigma_U_inv <- chol2inv(chol(Sigma_U))
 
   # --- STEP 2: GLS via Rcpp ---
-  res_cpp <- estimate_varma_gls_cpp(Y_step2, U_hat, Sigma_U_inv, p, q, type)
+  res_cpp <- estimate_varma_gls_cpp(Y_step2, U_hat, Sigma_U_inv, p, q, "diagonal")
   coefs_vec <- res_cpp$coefficients
   Phi_hat <- array(0, c(m, m, p))
 
@@ -1840,23 +1677,126 @@ fit_varma_dpe <- function(Y, p = 1, q = 1, intercept = TRUE,
   theta_vec <- coefs_vec[(n_phi + 1):length(coefs_vec)]
   Theta_hat <- array(0, c(m, m, q))
 
-  if (type == "diagonal") {
-    # Theta is diagonal, but every diagonal element is different
-    # Vector structure: [theta_11(L), theta_22(L), ...]
-    idx_t <- 1
-    for (k in 1:m) {
-      for (lag in 1:q) {
-        Theta_hat[k, k, lag] <- theta_vec[idx_t]
-        idx_t <- idx_t + 1
+  # Theta is diagonal, but every diagonal element is different
+  # Vector structure: [theta_11(L), theta_22(L), ...]
+  idx_t <- 1
+  for (k in 1:m) {
+    for (lag in 1:q) {
+      Theta_hat[k, k, lag] <- theta_vec[idx_t]
+      idx_t <- idx_t + 1
+    }
+  }
+
+  # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
+  if (intercept) {
+    I_minus_Phi <- diag(m)
+    for (i in 1:p) I_minus_Phi <- I_minus_Phi - Phi_hat[, , i]
+    c_curr <- drop(I_minus_Phi %*% Y_mean)
+  }
+
+  structure(
+    list(
+      intercept         = if (intercept) c_curr else NULL,
+      mean              = Y_mean,
+      ar                = as.array(Phi_hat),
+      ma                = as.array(Theta_hat),
+      cov               = Sigma_U,
+      estimation_method = fn_name,
+      loglik            = -(n * m / 2) * (log(2 * pi) + 1) -
+        (n / 2) * log(det(Sigma_U)),
+      n                 = n,
+      nobs              = sum(!is.na(Y_step2)),
+      npar              = length(coefs_vec),
+      y                 = Y,
+      residuals         = U_hat
+    ),
+    class = "varma"
+  )
+}
+
+#' Fit a VARMA(p,q) in final form using the iterated GLS method
+#'
+#' Estimates the parameters of a VARMA(p,q) model by maximizing the
+#' likelihood iterating GLS step as in Dufour and Pelletier (2022).
+#'
+#' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
+#' @param p the autoregressive order.
+#' @param q the moving average order.
+#' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
+#' @param r order of the long VAR(r) for approximating the residuals at first step
+#' @param verbose logical, if TRUE some textual output is printed during execution
+#'
+#' @return A varma object.
+#' @export
+fit_varma_dpf <- function(Y, p = 1, q = 1, intercept = TRUE,
+                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          verbose = FALSE) {
+  fn_name <- as.character(sys.call()[[1]])
+  if (!is.matrix(Y)) Y <- as.matrix(Y)
+  n <- nrow(Y)
+  m <- ncol(Y)
+  if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
+
+  # When intercept = TRUE, we work on centered Y.
+  if (intercept) {
+    Y_mean <- colMeans(Y)
+    Y_eff  <- Y - rep(Y_mean, each = n)
+  } else {
+    Y_mean <- NULL
+    Y_eff  <- Y
+  }
+
+  # --- STEP 1: Long VAR to estimate the residuals ---
+  X <- stats::embed(Y_eff, r+1)[, -seq_len(m)]
+  hr_reg <- stats::lm.fit(x = X, y = Y_eff[-seq_len(r), ])
+  U_hat  <- hr_reg$resid
+
+
+  # Align Y and U. The VAR loses initial observations.
+  # For step 2, we need Y and U sync'd.
+  # U_hat starts at t = r + 1
+  Y_step2 <- Y[(r + 1):n, ]
+
+  # Residuals covariance matrix (Sigma_U) and its inverse
+  Sigma_U <- crossprod(U_hat)/(n-r)
+  Sigma_U_inv <- chol2inv(chol(Sigma_U))
+
+  # --- STEP 2: GLS via Rcpp ---
+  res_cpp <- estimate_varma_gls_cpp(Y_step2, U_hat, Sigma_U_inv, p, q, "final")
+  coefs_vec <- res_cpp$coefficients
+  Phi_hat <- array(0, c(m, m, p))
+
+  # --- Formatting the Output ---
+  # Making the Phi e Theta arrays from the coefficient vector
+
+  # 1. Extract Phi
+  # The vector has all the phi's of eq 1, then eq 2, ...
+  # Every block eq has (m*p) elements.
+  n_phi <- m * m * p
+  phi_vec <- coefs_vec[seq_len(n_phi)]
+
+  # Parsing dei coefficienti Phi
+  if (p > 0) {
+    idx <- 1
+    for (k_eq in 1:m) { # For each equation
+      for (lag in 1:p) {
+        for (k_var in 1:m) { # Coefficient of the variabile k_var at lag 'lag'
+          Phi_hat[k_eq, k_var, lag] <- phi_vec[idx]
+          idx <- idx + 1
+        }
       }
     }
-  } else if (type == "final") {
-    # Theta is scalar (diagonal matrix with same values on the diagonal)
-    # Vector structure: [theta_scalar(lag1), theta_scalar(lag2)...]
-    for (lag in 1:q) {
-      val <- theta_vec[lag]
-      diag(Theta_hat[,,lag]) <- val
-    }
+  }
+
+  # 2. Extract Theta
+  theta_vec <- coefs_vec[(n_phi + 1):length(coefs_vec)]
+  Theta_hat <- array(0, c(m, m, q))
+
+  # Theta is scalar (diagonal matrix with same values on the diagonal)
+  # Vector structure: [theta_scalar(lag1), theta_scalar(lag2)...]
+  for (lag in 1:q) {
+    val <- theta_vec[lag]
+    diag(Theta_hat[,,lag]) <- val
   }
 
   # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
