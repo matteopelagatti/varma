@@ -107,35 +107,7 @@ arma::mat sim_varma_rcpp(const arma::cube& A,
   return y;
 }
 
-//' Solves the matrix Lypuanov equation
-//'
-//' Solves \eqn{P = T P T' + R Q R'} for \eqn{P} using the
-//' `sylvester` solver.
-//'
-//' @param T matrix, see the formula above.
-//' @param R matrix, see the formula above.
-//' @param Q matrix, see the formula above.
-//'
-//' @returns A matrix with the solution.
-//'
-// [[Rcpp::depends(RcppArmadillo)]]
-// [[Rcpp::export]]
-arma::mat solve_riccati(const arma::mat& T,
-                        const arma::mat& R,
-                        const arma::mat& Q) {
-  arma::mat B = pinv(T.t());
-  arma::mat C = R * Q * R.t();
-  arma::mat X;
-  bool success = sylvester(X, T, T.t(), C);
-  if (!success) stop("Riccati solver failed");
-  return X;
-}
 
-// [[Rcpp::depends(RcppArmadillo)]]
-// [[Rcpp::export]]
-arma::mat solve_syl(const arma::mat& A, const arma::mat& B, const arma::mat& C) {
-  return sylvester(A, B, C);
-}
 
 
 //' Solve Discrete-time Lyapunov Equation via Iteration
@@ -478,6 +450,8 @@ arma::mat var_filter(const arma::mat& X, const arma::cube& A, Rcpp::Nullable<arm
   int n = X.n_rows;
   int m = X.n_cols;
   int p = A.n_slices;
+
+  if (p == 0) return X;   // no AR part: output equals input
 
   arma::mat Y_init;
   if (Y0.isNotNull()) {
@@ -930,25 +904,29 @@ arma::cube autocov_mc_cpp(const arma::cube& ar, const arma::cube& ma,
       gamMix_cube = temp_Mix;
     }
 
+    // Pre-allocate the full output cube once; fill recursively.
+    int n_init = gamARMA_cube.n_slices;
+    arma::cube out_ARMA(m, m, maxlag + 1, arma::fill::zeros);
+    for(int i = 0; i < n_init; ++i) out_ARMA.slice(i) = gamARMA_cube.slice(i);
+
+    arma::mat ar_mat(m, m * p, arma::fill::zeros);
+    if (p > 0) {
+      for(int i = 0; i < p; ++i) ar_mat.cols(i * m, (i + 1) * m - 1) = ar.slice(i);
+    }
+
     for(int k = 1; k <= maxlag - p; ++k) {
-      int len = gamARMA_cube.n_slices;
+      int cur = n_init + k - 1;
       arma::mat acf = gamMix_cube.slice(p + k);
       if (p > 0) {
         arma::mat temp_mat(m * p, m);
         for(int i = 0; i < p; ++i) {
-          temp_mat.rows(i * m, (i + 1) * m - 1) = gamARMA_cube.slice(len - 1 - i);
-        }
-        arma::mat ar_mat(m, m * p);
-        for(int i = 0; i < p; ++i) {
-          ar_mat.cols(i * m, (i + 1) * m - 1) = ar.slice(i);
+          temp_mat.rows(i * m, (i + 1) * m - 1) = out_ARMA.slice(cur - 1 - i);
         }
         acf += ar_mat * temp_mat;
       }
-      arma::cube new_ARMA(m, m, len + 1);
-      for(int i = 0; i < len; ++i) new_ARMA.slice(i) = gamARMA_cube.slice(i);
-      new_ARMA.slice(len) = acf;
-      gamARMA_cube = new_ARMA;
+      out_ARMA.slice(cur) = acf;
     }
+    gamARMA_cube = out_ARMA;
   }
 
   return gamARMA_cube;
