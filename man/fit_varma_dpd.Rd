@@ -20,7 +20,7 @@ fit_varma_dpd(
 
 \item{q}{the moving average order.}
 
-\item{intercept}{logical, if TRUE an intercept is fitted to the VARMA}
+\item{intercept}{logical: if TRUE (default) a vector of intercepts is computed.}
 
 \item{r}{order of the long VAR(r) for approximating the residuals at first step}
 
