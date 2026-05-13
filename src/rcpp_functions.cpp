@@ -355,8 +355,12 @@ double kalman(const arma::sp_mat& T,
        continue;
      }
      // y partially missing
-     arma::vec v_t = Yt.col(t).elem(notna) - at.col(t).elem(notna); // fix 6: proper residual
-     v.col(t).elem(notna) = v_t;                                      // fix 6: store residuals
+     // .col() returns a subview with no .elem(); materialise first
+     const arma::vec Yt_t(Yt.col(t));
+     const arma::vec at_t(at.col(t));
+     arma::vec v_t = Yt_t.elem(notna) - at_t.elem(notna);            // fix 6: proper residual
+     for (arma::uword k = 0; k < notna.n_elem; ++k)                  // fix 6: store residuals
+       v(notna(k), t) = v_t(k);
      PZt = Pt.slice(t).cols(notna);
      arma::mat F_obs = Pt.slice(t)(notna, notna);
      F.slice(t).zeros();
