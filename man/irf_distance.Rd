@@ -13,7 +13,8 @@ irf_distance(irf1, irf2, r = 2, omit_lag0 = TRUE)
 
 \item{r}{positive number, order of the norm to be used (default is 2 -> Euclidean norm).}
 
-\item{omit_lag0}{logical, do not consider the IRFs at lag-0 (default TRUE).}
+\item{omit_lag0}{logical, do not consider the IRFs at lag-0 (default TRUE).
+applied to irf1}
 }
 \value{
 Distance between two IRFs (a positive number).

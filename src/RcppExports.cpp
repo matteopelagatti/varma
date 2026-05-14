@@ -25,6 +25,20 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// varma_residuals
+arma::mat varma_residuals(const arma::mat& Y, const arma::cube& Phi, const arma::cube& Theta, const arma::vec& intercept);
+RcppExport SEXP _varma_varma_residuals(SEXP YSEXP, SEXP PhiSEXP, SEXP ThetaSEXP, SEXP interceptSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type Phi(PhiSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type Theta(ThetaSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type intercept(interceptSEXP);
+    rcpp_result_gen = Rcpp::wrap(varma_residuals(Y, Phi, Theta, intercept));
+    return rcpp_result_gen;
+END_RCPP
+}
 // irf_varma_rcpp
 arma::cube irf_varma_rcpp(const arma::cube& A_cube, const arma::cube& M_cube, const arma::mat& P, int horizon);
 RcppExport SEXP _varma_irf_varma_rcpp(SEXP A_cubeSEXP, SEXP M_cubeSEXP, SEXP PSEXP, SEXP horizonSEXP) {
@@ -220,6 +234,7 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_varma_varma_acf", (DL_FUNC) &_varma_varma_acf, 4},
+    {"_varma_varma_residuals", (DL_FUNC) &_varma_varma_residuals, 4},
     {"_varma_irf_varma_rcpp", (DL_FUNC) &_varma_irf_varma_rcpp, 4},
     {"_varma_sim_varma_rcpp", (DL_FUNC) &_varma_sim_varma_rcpp, 3},
     {"_varma_solve_dlyap_iter", (DL_FUNC) &_varma_solve_dlyap_iter, 4},

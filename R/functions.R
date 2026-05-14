@@ -182,6 +182,42 @@ print.varma <- function(x, ...) {
   }
 }
 
+#' residuals method for varma object
+#'
+#' @param object a varma object.
+#' @param Y data matrix if NULL the y slot in the varma object is used
+#' @param recompute logical, if FALSE and the varma object contains residuals,
+#' the function returns those residuals, if TRUE the function recomputes the
+#' residuals.
+#' @param ... not used.
+#'
+#' @returns Matrix of residuals. If recompute is TRUE, the residuals are always
+#' recomputed by this function, if it is FALSE and the varma object slot
+#' residuals is not NULL, then these residuals are returned.
+#'
+#' @method residuals varma
+#' @export
+residuals.varma <- function(object, Y = NULL, recompute = TRUE, ...) {
+  if (!is.null(object$residuals) && !recompute) return(object$residuals)
+  if (is.null(Y) && is.null(object$y)) stop("Y and object$y both missing")
+  if (is.null(Y)) Y <- object$y
+  mpq <- dim(object)
+  n <- NROW(Y)
+  if (mpq[2] == 0 && mpq[3] == 0) {
+    if (!is.null(object$intercept)) return(Y - rep(object$intercept, each = n))
+    if (!is.null(object$mean)) return(Y - rep(object$mean, each = n))
+  }
+  if (!is.null(object$intercept)) {
+    varma_residuals(Y = Y, Phi = object$ar,
+                    Theta = object$ma, intercept = object$intercept)
+  } else if (!is.null(object$mean)) {
+    varma_residuals(Y = Y - rep(object$mean, each = n), Phi = object$ar,
+                    Theta = object$ma, intercept = numeric(0))
+  } else {
+    varma_residuals(Y = Y, Phi = object$ar,
+                    Theta = object$ma, intercept = numeric(0))
+  }
+}
 
 
 #' Companion form of a VARMA
@@ -1559,12 +1595,17 @@ fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
     c_curr <- drop(I_minus_Phi %*% Y_mean)
   }
 
+  varma_obj <- varma(ar = Phi_hat, ma = Theta_hat)
+  U_final <- resid(varma_obj, Y = Y_eff)
+  maxpq <- max(p, q)
+  Sigma_U <- crossprod(U_final[-seq_len(maxpq), ]) / (n - maxpq)
+
   structure(
     list(
       intercept         = if (intercept) c_curr else NULL,
       mean              = Y_mean,
-      ar                = as.array(Phi_hat),
-      ma                = as.array(Theta_hat),
+      ar                = Phi_hat,
+      ma                = Theta_hat,
       cov               = Sigma_U,
       estimation_method = fn_name,
       loglik            = -(n * m / 2) * (log(2 * pi) + 1) -
@@ -1573,7 +1614,7 @@ fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
       nobs              = sum(!is.na(Y_step2)),
       npar              = length(coefs_vec),
       y                 = Y,
-      residuals         = U_hat
+      residuals         = U_final
     ),
     class = "varma"
   )
@@ -1671,12 +1712,17 @@ fit_varma_dpf <- function(Y, p = 1, q = 1, intercept = TRUE,
     c_curr <- drop(I_minus_Phi %*% Y_mean)
   }
 
+  varma_obj <- varma(ar = Phi_hat, ma = Theta_hat)
+  U_final <- resid(varma_obj, Y = Y_eff)
+  maxpq <- max(p, q)
+  Sigma_U <- crossprod(U_final[-seq_len(maxpq), ]) / (n - maxpq)
+
   structure(
     list(
       intercept         = if (intercept) c_curr else NULL,
       mean              = Y_mean,
-      ar                = as.array(Phi_hat),
-      ma                = as.array(Theta_hat),
+      ar                = Phi_hat,
+      ma                = Theta_hat,
       cov               = Sigma_U,
       estimation_method = fn_name,
       loglik            = -(n * m / 2) * (log(2 * pi) + 1) -
@@ -1685,7 +1731,7 @@ fit_varma_dpf <- function(Y, p = 1, q = 1, intercept = TRUE,
       nobs              = sum(!is.na(Y_step2)),
       npar              = length(coefs_vec),
       y                 = Y,
-      residuals         = U_hat
+      residuals         = U_final
     ),
     class = "varma"
   )
@@ -1767,6 +1813,7 @@ convert_fable_varma <- function(object) {
 #' @param irf2 an array of dimensions m x m x max_lags containing an IRF.
 #' @param r positive number, order of the norm to be used (default is 2 -> Euclidean norm).
 #' @param omit_lag0 logical, do not consider the IRFs at lag-0 (default TRUE).
+#' applied to irf1
 #'
 #' @returns Distance between two IRFs (a positive number).
 #'

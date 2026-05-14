@@ -3,6 +3,51 @@ using namespace Rcpp;
 using namespace arma;
 const double M_LOG2PI = log(2 * arma::datum::pi);
 
+// [[Rcpp::depends(RcppArmadillo)]]
+
+//' VARMA residuals
+//'
+//' Iterates the VARMA(p, q) recursion forward to produce one-step-ahead
+//' residuals.  The first \code{max(p, q)} rows of the output are zero
+//' (pre-sample); valid residuals begin at row \code{max(p, q) + 1} (1-indexed).
+//' The AR part conditions on the observed \code{Y[1:p, ]}; pre-sample errors
+//' used by the MA part are initialised to zero.
+//'
+//' @param Y         \eqn{n \times m} matrix of observations (rows = time points).
+//' @param Phi       \eqn{m \times m \times p} cube of VAR coefficient matrices.
+//'                  Pass \code{array(0, c(m, m, 0))} when \code{p = 0}.
+//' @param Theta     \eqn{m \times m \times q} cube of VMA coefficient matrices.
+//'                  Pass \code{array(0, c(m, m, 0))} when \code{q = 0}.
+//' @param intercept \eqn{m}-vector of intercepts. Pass \code{numeric(0)} to
+//'                  omit the intercept.
+//' @return \eqn{n \times m} matrix of residuals.
+// [[Rcpp::export]]
+arma::mat varma_residuals(const arma::mat&  Y,
+                           const arma::cube& Phi,
+                           const arma::cube& Theta,
+                           const arma::vec&  intercept) {
+   const int n         = static_cast<int>(Y.n_rows);
+   const int p         = static_cast<int>(Phi.n_slices);
+   const int q         = static_cast<int>(Theta.n_slices);
+   const int t_start   = std::max(p, q);
+   const bool has_int  = intercept.n_elem > 0;
+
+   arma::mat E(n, Y.n_cols, arma::fill::zeros);
+
+   for (int t = t_start; t < n; ++t) {
+     arma::rowvec e_t = Y.row(t);
+     if (has_int)
+       e_t -= intercept.t();
+     for (int i = 0; i < p; ++i)
+       e_t -= Y.row(t - i - 1) * Phi.slice(i).t();
+     for (int j = 0; j < q; ++j)
+       e_t -= E.row(t - j - 1) * Theta.slice(j).t();
+     E.row(t) = e_t;
+   }
+
+   return E;
+}
+
 
 //' IRF of a VARMA model
 //'

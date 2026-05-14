@@ -5,6 +5,26 @@ varma_acf <- function(ar, ma, cov_mat, max_lag) {
     .Call(`_varma_varma_acf`, ar, ma, cov_mat, max_lag)
 }
 
+#' VARMA residuals
+#'
+#' Iterates the VARMA(p, q) recursion forward to produce one-step-ahead
+#' residuals.  The first \code{max(p, q)} rows of the output are zero
+#' (pre-sample); valid residuals begin at row \code{max(p, q) + 1} (1-indexed).
+#' The AR part conditions on the observed \code{Y[1:p, ]}; pre-sample errors
+#' used by the MA part are initialised to zero.
+#'
+#' @param Y         \eqn{n \times m} matrix of observations (rows = time points).
+#' @param Phi       \eqn{m \times m \times p} cube of VAR coefficient matrices.
+#'                  Pass \code{array(0, c(m, m, 0))} when \code{p = 0}.
+#' @param Theta     \eqn{m \times m \times q} cube of VMA coefficient matrices.
+#'                  Pass \code{array(0, c(m, m, 0))} when \code{q = 0}.
+#' @param intercept \eqn{m}-vector of intercepts. Pass \code{numeric(0)} to
+#'                  omit the intercept.
+#' @return \eqn{n \times m} matrix of residuals.
+varma_residuals <- function(Y, Phi, Theta, intercept) {
+    .Call(`_varma_varma_residuals`, Y, Phi, Theta, intercept)
+}
+
 irf_varma_rcpp <- function(A_cube, M_cube, P, horizon) {
     .Call(`_varma_irf_varma_rcpp`, A_cube, M_cube, P, horizon)
 }
