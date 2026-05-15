@@ -231,6 +231,19 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// kronecker_indices_cpp
+Rcpp::IntegerVector kronecker_indices_cpp(const arma::cube& Phi, const arma::cube& Theta, const double tol);
+RcppExport SEXP _varma_kronecker_indices_cpp(SEXP PhiSEXP, SEXP ThetaSEXP, SEXP tolSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::cube& >::type Phi(PhiSEXP);
+    Rcpp::traits::input_parameter< const arma::cube& >::type Theta(ThetaSEXP);
+    Rcpp::traits::input_parameter< const double >::type tol(tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(kronecker_indices_cpp(Phi, Theta, tol));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_varma_varma_acf", (DL_FUNC) &_varma_varma_acf, 4},
@@ -248,6 +261,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_autocov_an_cpp", (DL_FUNC) &_varma_autocov_an_cpp, 4},
     {"_varma_autocov_mi_cpp", (DL_FUNC) &_varma_autocov_mi_cpp, 4},
     {"_varma_rby_optimization_step", (DL_FUNC) &_varma_rby_optimization_step, 7},
+    {"_varma_kronecker_indices_cpp", (DL_FUNC) &_varma_kronecker_indices_cpp, 3},
     {NULL, NULL, 0}
 };
 

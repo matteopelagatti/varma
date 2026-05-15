@@ -388,6 +388,22 @@ is_identified <- function(varma, tol = 1e-5) {
   if (all(dif > tol)) TRUE else FALSE
 }
 
+#' Computes the Kronecker indices of a VARMA model
+#'
+#' @param varma an object of varma class (only the slots ar and ma are used)
+#' @param tol relative singular-value threshold for numerical rank (default \code{1e-8})
+#'
+#' @returns A vector with number of elements equal to the number of time series
+#' with the Kronecker indices.
+#'
+#' @export
+kronecker_indices <- function(varma, tol = 1e-8) {
+  mpq <- dim(varma)
+  if ((mpq[2] < 1) && (mpq[3] < 1)) return(rep(0L, mpq[1]))
+  phi   <- if (mpq[2] < 1) array(dim = c(mpq[1], mpq[1], 0)) else varma$ar
+  theta <- if (mpq[3] < 1) array(dim = c(mpq[1], mpq[1], 0)) else varma$ma
+  kronecker_indices_cpp(phi, theta, tol)
+}
 
 #' Impulse response function of VARMA process
 #'
@@ -887,13 +903,15 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
   res_cov <- crossprod(resid)/nrow(X)
   nobs <- sum(!is.na(Y))
   estim <- t(coeff)
-  if (sur) { # SUR step if required
+  if (sur) {
     not_zero <- (estim != 0)
     if (intercept) X <- cbind(1, X)
-    ylist <- lapply(1:m, function(i) if (p>0) Y[-(1:p), i, drop = FALSE] else Y[, i, drop = FALSE])
+    ylist <- lapply(1:m, function(i) if (p > 0) Y[-(1:p), i, drop = FALSE] else Y[, i, drop = FALSE])
     xlist <- lapply(1:m, function(i) X[, not_zero[i, ], drop = FALSE])
-    beta  <- sur_cpp(xlist, ylist, res_cov)
-    coeff[t(not_zero)] <- beta
+    if (all(vapply(xlist, ncol, integer(1L)) > 0L)) {
+      beta        <- sur_cpp(xlist, ylist, res_cov)
+      coeff[t(not_zero)] <- beta
+    }
     estim <- t(coeff)
   }
   if (intercept) {
@@ -1500,7 +1518,7 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
   )
 }
 
-#' Fit a VARMA(p,q) in diagonal form using the iterated GLS method
+#' Fit a VARMA(p,q) in diagonal MA form using the iterated GLS method
 #'
 #' Estimates the parameters of a VARMA(p,q) model by maximizing the
 #' likelihood iterating GLS step as in Dufour and Pelletier (2022).
@@ -1596,7 +1614,7 @@ fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
   }
 
   varma_obj <- varma(ar = Phi_hat, ma = Theta_hat)
-  U_final <- resid(varma_obj, Y = Y_eff)
+  U_final <- residuals.varma(varma_obj, Y = Y_eff)
   maxpq <- max(p, q)
   Sigma_U <- crossprod(U_final[-seq_len(maxpq), ]) / (n - maxpq)
 
@@ -1620,7 +1638,7 @@ fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
   )
 }
 
-#' Fit a VARMA(p,q) in final form using the iterated GLS method
+#' Fit a VARMA(p,q) in final MA form using the iterated GLS method
 #'
 #' Estimates the parameters of a VARMA(p,q) model by maximizing the
 #' likelihood iterating GLS step as in Dufour and Pelletier (2022).
@@ -1713,7 +1731,7 @@ fit_varma_dpf <- function(Y, p = 1, q = 1, intercept = TRUE,
   }
 
   varma_obj <- varma(ar = Phi_hat, ma = Theta_hat)
-  U_final <- resid(varma_obj, Y = Y_eff)
+  U_final <- residuals.varma(varma_obj, Y = Y_eff)
   maxpq <- max(p, q)
   Sigma_U <- crossprod(U_final[-seq_len(maxpq), ]) / (n - maxpq)
 

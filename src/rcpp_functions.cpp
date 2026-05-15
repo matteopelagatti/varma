@@ -1385,3 +1385,85 @@ List rby_optimization_step(arma::mat Y, arma::cube Phi_cube, arma::cube Theta_cu
   return List::create(Named("ZZ") = ZZ, Named("ZE") = ZE, Named("E") = E);
 }
 
+
+//' Kronecker indices for the VARMA echelon form
+//'
+//' Determines the Kronecker indices from the VARMA transfer function
+//' \eqn{\Phi(z)^{-1}\Theta(z)} via the rank profile of the block Hankel
+//' matrix of impulse-response coefficients.  The identity
+//' \eqn{\mathrm{rank}(H_s) = \sum_k \min(\kappa_k, s)} implies
+//' \eqn{\Delta_s = \mathrm{rank}(H_s) - \mathrm{rank}(H_{s-1}) = \#\{k : \kappa_k \ge s\}},
+//' so the Kronecker indices are the conjugate partition of
+//' \eqn{(\Delta_1, \Delta_2, \ldots)}.
+//'
+//' @param Phi   \eqn{m \times m \times p} cube of VAR coefficients.
+//'              Pass a zero-slice cube (\code{array(0, c(m, m, 0))}) when
+//'              \code{p = 0}.
+//' @param Theta \eqn{m \times m \times q} cube of VMA coefficients.
+//'              Pass a zero-slice cube when \code{q = 0}.
+//' @param tol   Relative singular-value threshold for numerical rank
+//'              (default \code{1e-8}).
+//' @return Integer vector of length \code{m} with Kronecker indices sorted
+//'         in non-increasing order.
+// [[Rcpp::export]]
+Rcpp::IntegerVector kronecker_indices_cpp(const arma::cube& Phi,
+                                          const arma::cube& Theta,
+                                          const double      tol = 1e-8) {
+   const int p     = static_cast<int>(Phi.n_slices);
+   const int q     = static_cast<int>(Theta.n_slices);
+   const int m = (Phi.n_slices > 0) ? static_cast<int>(Phi.n_rows) : static_cast<int>(Theta.n_rows);
+   const int K     = 2 * (p + q + m) + 2;  // enough for rank to stabilise
+   const int max_s = K / 2;
+
+   // ---------------------------------------------------------------
+   // Step 1 — impulse responses  C[0] = I,  C[j] = C_j  (j = 1..K)
+   //   C_j = Theta_j - Phi_1 C_{j-1} - ... - Phi_p C_{j-p}
+   //   with Theta_j = 0 for j > q
+   // ---------------------------------------------------------------
+   std::vector<arma::mat> C(K + 1);
+   C[0] = arma::eye<arma::mat>(m, m);
+   for (int j = 1; j <= K; ++j) {
+     arma::mat Cj = (j <= q) ? arma::mat(Theta.slice(j - 1))
+       : arma::mat(m, m, arma::fill::zeros);
+     for (int i = 1; i <= std::min(j, p); ++i)
+       Cj += Phi.slice(i - 1) * C[j - i];
+     C[j] = std::move(Cj);
+   }
+
+   // ---------------------------------------------------------------
+   // Step 2 — block Hankel matrices  H_s,  block(i,j) = C_{i+j-1}
+   //   Compute numerical rank via SVD; stop when rank stabilises.
+   // ---------------------------------------------------------------
+   std::vector<int> ranks(max_s + 1, 0);  // ranks[0] = rank(H_0) = 0
+   int s_stop = 0;
+
+   for (int s = 1; s <= max_s; ++s) {
+     const int sm = s * m;
+     arma::mat H(sm, sm, arma::fill::zeros);
+     for (int i = 1; i <= s; ++i)
+       for (int j = 1; j <= s; ++j)
+         H.submat((i-1)*m, (j-1)*m, i*m-1, j*m-1) = C[i + j - 1];
+
+     arma::vec sv;
+     arma::svd(sv, H);   // singular values only, descending order
+     ranks[s] = (sv(0) > std::numeric_limits<double>::epsilon())
+       ? static_cast<int>(arma::sum(sv > tol * sv(0)))
+       : 0;
+     s_stop = s;
+     if (s > 1 && ranks[s] == ranks[s - 1]) break;  // McMillan degree reached
+   }
+
+   // ---------------------------------------------------------------
+   // Steps 3-4 — conjugate partition
+   //   delta_s = ranks[s] - ranks[s-1] = #{k : kappa_k >= s}
+   //   so each delta_s contributes +1 to kappa_1, ..., kappa_{delta_s}
+   // ---------------------------------------------------------------
+   Rcpp::IntegerVector kappa(m, 0);
+   for (int s = 1; s <= s_stop; ++s) {
+     const int delta = ranks[s] - ranks[s - 1];
+     for (int k = 0; k < delta && k < m; ++k)
+       kappa[k]++;
+   }
+   std::sort(kappa.begin(), kappa.end(), std::greater<int>());
+   return kappa;
+ }

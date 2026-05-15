@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{fit_varma_dpd}
 \alias{fit_varma_dpd}
-\title{Fit a VARMA(p,q) in diagonal form using the iterated GLS method}
+\title{Fit a VARMA(p,q) in diagonal MA form using the iterated GLS method}
 \usage{
 fit_varma_dpd(
   Y,

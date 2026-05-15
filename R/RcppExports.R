@@ -118,3 +118,26 @@ rby_optimization_step <- function(Y, Phi_cube, Theta_cube, p, q, intercept, c_ve
     .Call(`_varma_rby_optimization_step`, Y, Phi_cube, Theta_cube, p, q, intercept, c_vec)
 }
 
+#' Kronecker indices for the VARMA echelon form
+#'
+#' Determines the Kronecker indices from the VARMA transfer function
+#' \eqn{\Phi(z)^{-1}\Theta(z)} via the rank profile of the block Hankel
+#' matrix of impulse-response coefficients.  The identity
+#' \eqn{\mathrm{rank}(H_s) = \sum_k \min(\kappa_k, s)} implies
+#' \eqn{\Delta_s = \mathrm{rank}(H_s) - \mathrm{rank}(H_{s-1}) = \#\{k : \kappa_k \ge s\}},
+#' so the Kronecker indices are the conjugate partition of
+#' \eqn{(\Delta_1, \Delta_2, \ldots)}.
+#'
+#' @param Phi   \eqn{m \times m \times p} cube of VAR coefficients.
+#'              Pass a zero-slice cube (\code{array(0, c(m, m, 0))}) when
+#'              \code{p = 0}.
+#' @param Theta \eqn{m \times m \times q} cube of VMA coefficients.
+#'              Pass a zero-slice cube when \code{q = 0}.
+#' @param tol   Relative singular-value threshold for numerical rank
+#'              (default \code{1e-8}).
+#' @return Integer vector of length \code{m} with Kronecker indices sorted
+#'         in non-increasing order.
+kronecker_indices_cpp <- function(Phi, Theta, tol = 1e-8) {
+    .Call(`_varma_kronecker_indices_cpp`, Phi, Theta, tol)
+}
+
