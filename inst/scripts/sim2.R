@@ -1,3 +1,4 @@
+library(tidyverse)
 library(varma)
 library(MTS)
 
@@ -21,7 +22,7 @@ fit_varma_ech <- function(Y, intercept = TRUE, plag = 5, crit = 0.05, kind = NUL
   kfit <- MTS::Kronfit(Y, kind, intercept)
   m <- dim(kfit$Sigma)[1]
   nobs <- prod(dim(kfit$residuals))
-  iPhi0 <- solve(iPhi0)
+  iPhi0 <- solve(kfit$Ph0)
   out <-  varma(intercept = kfit$const,
                 ar = array(iPhi0 %*% kfit$Phi, c(m, m, ncol(kfit$Phi)/m)),
                 ma = array(-iPhi0 %*% kfit$Theta, c(m, m, ncol(kfit$Theta)/m)),
@@ -34,7 +35,7 @@ fit_varma_ech <- function(Y, intercept = TRUE, plag = 5, crit = 0.05, kind = NUL
                 npar = length(kfit$coef),
                 y = Y,
                 residuals = kfit$residuals)
-  out$residuals <- residuals.varma(out)
+  out$residuals <- residuals(out)
   out
 }
 
