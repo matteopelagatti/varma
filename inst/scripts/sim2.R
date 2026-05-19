@@ -514,3 +514,11 @@ fcst_plts[[3]]
 fcst_plts[[4]]
 fcst_plts[[5]]
 fcst_plts[[6]]
+
+
+irf_quantiles <- function(res, h, perc = c(0.1, 0.5, 0.9)) {
+  out <- vector("list", length(results))
+  for (i in 1:length(out)) {
+
+  }
+}
