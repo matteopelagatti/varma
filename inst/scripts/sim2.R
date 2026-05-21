@@ -22,8 +22,12 @@ fit_varma_ech <- function(Y, intercept = TRUE, plag = 5, crit = 0.05, kind = NUL
   kfit <- MTS::Kronfit(Y, kind, intercept)
   m <- dim(kfit$Sigma)[1]
   nobs <- prod(dim(kfit$residuals))
-  iPhi0 <- solve(kfit$Ph0)
-  out <-  varma(intercept = kfit$const,
+
+  iPhi0  <- solve(kfit$Ph0)
+  # MTS echelon form: Phi_0 Y_t = c + Phi_1 Y_{t-1} + ... + Phi_0 a_t - Theta_1 a_{t-1} - ...
+  # Pre-multiplying by Phi_0^{-1}: Y_t = Phi_0^{-1} c + Phi_0^{-1} Phi_j Y_{t-j} + a_t - Phi_0^{-1} Theta_j a_{t-j}
+  # So: intercept = iPhi0 %*% c, AR_j = iPhi0 %*% Phi_j, MA_j = -iPhi0 %*% Theta_j, Cov(a_t) = kfit$Sigma
+  out <-  varma(intercept = as.vector(iPhi0 %*% kfit$const),
                 ar = array(iPhi0 %*% kfit$Phi, c(m, m, ncol(kfit$Phi)/m)),
                 ma = array(-iPhi0 %*% kfit$Theta, c(m, m, ncol(kfit$Theta)/m)),
                 cov = kfit$Sigma,
@@ -35,7 +39,7 @@ fit_varma_ech <- function(Y, intercept = TRUE, plag = 5, crit = 0.05, kind = NUL
                 npar = length(kfit$coef),
                 y = Y,
                 residuals = kfit$residuals)
-  out$residuals <- residuals(out)
+  # out$residuals <- residuals(out)
   out
 }
 

@@ -2030,54 +2030,60 @@ nobs.varma <- function(object, ...) {
 #' @method predict varma
 #' @export
 predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
+  n.ahead <- as.integer(n.ahead)
+  if (n.ahead < 1) stop("n.ahead must be an integer larger than 0")
   if (is.null(object$estimation_method)) stop("This varma object was not estimated on data")
+  if (is.null(object$y)) stop("No time series to predict in the varma object")
+  # Check if VARMA is in state-space form: ssf TRUE or FALSE
+  ssf <- (!is.null(object$state_pred_mean) &&
+            !is.null(object$state_pred_cov)  &&
+            !is.null(object$transition_matrix)  &&
+            !is.null(object$disturbance_cov))
   mpq <- dim(object)
   m <- mpq[1]
   p <- mpq[2]
   q <- mpq[3]
   # if (object$estimation_method %in% c("fit_varma_ihr", "fit_varma_net")) {
-  if ((!is.null(object$y)) && (!is.null(object$residuals))) {
+  if (!ssf && (!is.null(object$residuals))) {
     yhat <- matrix(0, n.ahead, m)
     colnames(yhat) <- colnames(object$y)
-    if (p > 0) { # AR part
-      ny   <- nrow(object$y)
-      ylag <- as.numeric(t(object$y[ny:(ny-p+1), ]))
-      At   <- t(matrix(object$ar, m, m*p))
-      for (i in 1:n.ahead) {
-        yhat[i, ] <- ylag %*% At
-        if (!is.null(object$intercept)) yhat[i, ] <- yhat[i, ] + object$intercept
-        ylag <- if (p == 1) yhat[i, ] else c(yhat[i, ], ylag[1:((p-1)*m)])
-      }
+    # AR and MA contributions must be combined in a single pass: ylag must be
+    # updated with the *full* h-step forecast (AR + MA + intercept) before it
+    # is used as the lagged term for the (h+1)-step forecast.  Separate loops
+    # would update ylag with the incomplete AR-only value, introducing an error
+    # of A_1 M_1 a_n (and higher-order terms) at every step beyond h = 1.
+    ny <- nrow(object$y)
+    nr <- nrow(object$residuals)
+    if (p > 0) {
+      ylag <- as.numeric(t(object$y[ny:(ny - p + 1L), , drop = FALSE]))
+      At   <- t(matrix(object$ar, m, m * p))
     }
-    if (q > 0) { # MA part
-      nr   <- nrow(object$residuals)
-      elag <- as.numeric(t(object$residuals[nr:(nr-q+1), ]))
-      Mt   <- t(matrix(object$ma, m, m*q))
-      for (i in 1:min(q, n.ahead)) {
-        yhat[i, ] <- yhat[i, ] + elag %*% Mt
-        if (q > 1) {
-          elag <- utils::head(elag, m*(q-i))
-          Mt   <- utils::tail(Mt, m*(q-i))
+    if (q > 0) {
+      elag <- as.numeric(t(object$residuals[nr:(nr - q + 1L), , drop = FALSE]))
+      Mt   <- t(matrix(object$ma, m, m * q))
+    }
+    for (i in seq_len(n.ahead)) {
+      yi <- if (!is.null(object$intercept)) object$intercept else numeric(m)
+      if (p > 0) yi <- yi + as.numeric(ylag %*% At)
+      if (q > 0 && i <= q) {
+        yi <- yi + as.numeric(elag %*% Mt)
+        if (i < q) {                                    # shift for next step
+          elag <- utils::head(elag, m * (q - i))
+          Mt   <- utils::tail(Mt,   m * (q - i))
         }
       }
-      if ((p < 1) && !is.null(object$intercept)) yhat <- yhat + rep(object$intercept, each = n.ahead)
+      yhat[i, ] <- yi
+      if (p > 0)
+        ylag <- if (p == 1L) yi else c(yi, ylag[seq_len((p - 1L) * m)])
     }
     if (cov) {
+      Psi <- irf(object, maxlag = n.ahead - 1L, orth = "none")
+      # Psi[,, j] = Psi_{j-1};  Psi[,, 1] = I_m
       S <- array(0, c(m, m, n.ahead))
       dimnames(S) <- list(colnames(yhat), colnames(yhat), NULL)
-      S[,, 1] <- object$cov
-      for (i in 2:n.ahead) { # AR contribution
-        if (p > 0) {
-          for (j in 1:min(p, i-1)) {
-            S[,, i] <- S[,, i] + object$ar[,, j] %*% tcrossprod(S[,,i-j], object$ar[,, j])
-          }
-        }
-        S[,, i] <- S[,, i] + object$cov # new innovaton contribution
-        if (q > 0) {
-          for (j in 1:min(q, i-1)) {
-            S[,, i] <- S[,, i] + object$ma[,, j] %*% tcrossprod(object$cov, object$ma[,, j])
-          }
-        }
+      S[,, 1] <- object$cov                          # Psi_0 = I, so I Sigma I' = Sigma
+      for (h in seq_len(n.ahead - 1L) + 1L) {
+        S[,, h] <- S[,, h - 1L] + Psi[,, h] %*% tcrossprod(object$cov, Psi[,, h])
       }
       return(list(mean = yhat, cov = S))
     } else {
@@ -2085,27 +2091,29 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
     }
   }
   # if (object$estimation_method %in% c("fit_varma_fkf",
-  #                                     "fit_varma_cpp",
+  #                                     "fit_varma_skf",
   #                                     "fit_varma_kfas")) {
-  if ((!is.null(object$state_pred_mean) &&
-       !is.null(object$state_pred_cov)  &&
-       !is.null(object$transition_matrix)  &&
-       !is.null(object$disturbance_cov))) {
+  if (ssf) {
     d <- nrow(object$transition_matrix)
     ahat <- matrix(0, n.ahead, d)
     ahat[1, ] <- object$state_pred_mean
-    for (i in 2:n.ahead) {
-      ahat[i, ] <- as.numeric(object$transition_matrix %*% ahat[i-1, ])
+    if (n.ahead > 1){
+      for (i in 2:n.ahead) {
+        ahat[i, ] <- as.numeric(object$transition_matrix %*% ahat[i-1, ])
+      }
     }
-    yhat <- ahat[, 1:m] + rep(object$mean, each = n.ahead)
+    yhat <- ahat[, 1:m, drop = FALSE]
+    if (!is.null(object$mean)) yhat <- yhat + rep(object$mean, each = n.ahead)
     colnames(yhat) <- colnames(object$y)
     if (cov) {
       phat <- array(0, c(d, d, n.ahead))
       phat[,, 1] <- object$state_pred_cov
-      for (i in 2:n.ahead) {
-        phat[,, i] <- object$transition_matrix %*%
-          tcrossprod(phat[,, i-1], object$transition_matrix) +
-          object$disturbance_cov
+      if (n.ahead > 1) {
+        for (i in 2:n.ahead) {
+          phat[,, i] <- object$transition_matrix %*%
+            tcrossprod(phat[,, i-1], object$transition_matrix) +
+            object$disturbance_cov
+        }
       }
       return(
         list(mean = yhat,
