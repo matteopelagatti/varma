@@ -81,8 +81,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // kalmanLogLik
-double kalmanLogLik(const arma::sp_mat& T, const arma::sp_mat& R, const arma::mat& Q, arma::mat& a1, arma::mat& P1, const arma::mat& Yt, const bool update_state);
-RcppExport SEXP _varma_kalmanLogLik(SEXP TSEXP, SEXP RSEXP, SEXP QSEXP, SEXP a1SEXP, SEXP P1SEXP, SEXP YtSEXP, SEXP update_stateSEXP) {
+double kalmanLogLik(const arma::sp_mat& T, const arma::sp_mat& R, const arma::mat& Q, arma::mat& a1, arma::mat& P1, const arma::mat& Yt, const bool update_state, const double ss_tol);
+RcppExport SEXP _varma_kalmanLogLik(SEXP TSEXP, SEXP RSEXP, SEXP QSEXP, SEXP a1SEXP, SEXP P1SEXP, SEXP YtSEXP, SEXP update_stateSEXP, SEXP ss_tolSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -93,7 +93,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< arma::mat& >::type P1(P1SEXP);
     Rcpp::traits::input_parameter< const arma::mat& >::type Yt(YtSEXP);
     Rcpp::traits::input_parameter< const bool >::type update_state(update_stateSEXP);
-    rcpp_result_gen = Rcpp::wrap(kalmanLogLik(T, R, Q, a1, P1, Yt, update_state));
+    Rcpp::traits::input_parameter< const double >::type ss_tol(ss_tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(kalmanLogLik(T, R, Q, a1, P1, Yt, update_state, ss_tol));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -251,7 +252,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_irf_varma_rcpp", (DL_FUNC) &_varma_irf_varma_rcpp, 4},
     {"_varma_sim_varma_rcpp", (DL_FUNC) &_varma_sim_varma_rcpp, 3},
     {"_varma_solve_dlyap_iter", (DL_FUNC) &_varma_solve_dlyap_iter, 4},
-    {"_varma_kalmanLogLik", (DL_FUNC) &_varma_kalmanLogLik, 7},
+    {"_varma_kalmanLogLik", (DL_FUNC) &_varma_kalmanLogLik, 8},
     {"_varma_kalman", (DL_FUNC) &_varma_kalman, 9},
     {"_varma_sur_cpp", (DL_FUNC) &_varma_sur_cpp, 3},
     {"_varma_var_filter", (DL_FUNC) &_varma_var_filter, 3},

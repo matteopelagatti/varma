@@ -141,10 +141,10 @@ experiment <- function(varma, n = 100, h = 5, nsim = 1000) {
   cat("MLE estimations\n")
   list_time[["MLE"]] <- system.time(
     list_est[["MLE"]] <- lapply(list_y,
-                                function(x) tryCatch(fit_varma_fkf(Y = x[1:n,],
-                                                                   p = mpq[2],
-                                                                   q = mpq[3],
-                                                                   intercept = F),
+                                function(x) tryCatch(fit_varma_kfas(Y = x[1:n,],
+                                                                    p = mpq[2],
+                                                                    q = mpq[3],
+                                                                    intercept = F),
                                                      error = function(e) NA)
     )
   )

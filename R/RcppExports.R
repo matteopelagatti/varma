@@ -37,8 +37,8 @@ solve_dlyap_iter <- function(T, C, max_iter = 200L, tol = 1e-10) {
     .Call(`_varma_solve_dlyap_iter`, T, C, max_iter, tol)
 }
 
-kalmanLogLik <- function(T, R, Q, a1, P1, Yt, update_state = FALSE) {
-    .Call(`_varma_kalmanLogLik`, T, R, Q, a1, P1, Yt, update_state)
+kalmanLogLik <- function(T, R, Q, a1, P1, Yt, update_state = FALSE, ss_tol = 1e-8) {
+    .Call(`_varma_kalmanLogLik`, T, R, Q, a1, P1, Yt, update_state, ss_tol)
 }
 
 kalman <- function(T, R, Q, at, Pt, Yt, v, F, update_state = FALSE) {

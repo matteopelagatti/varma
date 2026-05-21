@@ -185,116 +185,181 @@ arma::mat solve_dlyap_iter(const arma::sp_mat& T, const arma::mat& C, int max_it
 
 //' Compute the log-likelihood of a VARMA model in state-space form
 //'
-//' It is efficient for large systems since it exploit the sparsity
-//' of the transition matrix (\eqn(T)) and of the matrix that premultiplies the
-//' disturbances (\eqn{R}). The observation matrix (\eqn(Z))and noise variance matrix
-//' are not used. Call \eqn{m} the number of time series to model,
-//' the state space form for this problem is:
-//' \eqn{\alpha_{t+1} = T\alpha_{t} + R\eta_t}
-//' \eqn{y_t = \alpha_{t}^{(1:m)}},
-//' where \eqn{\alpha_{t}^{(1:m)}} denotes the subvector of \eqn{\alpha_t}
-//' with the first \eqn{m} elements.
+//' It is efficient for large systems since it exploits the sparsity of the
+//' transition matrix \eqn{T} and of the disturbance-input matrix \eqn{R}.
+//' The observation matrix \eqn{Z = [I_m \; 0]} is implicit: the first \eqn{m}
+//' elements of the state vector are the observations.
 //'
-//' @param T sparse matrix (use the function Matrix(T, sparse = TRUE) of the
-//' Matrix package to turn the dense matrix T into a sparse one).
-//' @param R sparse matrix (see above).
-//' @param Q dense covariance matrix.
-//' @param a1 matrix with one column with initial mean values for the state vector.
-//' @param P1 initial covariance matrix of the state vector.
-//' @param Yt trasposed matrix of data \eqn{n\times m}, where \eqn{n} is the
-//' number of time points.
-//' @param update_state: boolean (by default is false), if true the parameters
-//' a1 and P1 are overwritten with the values of the state prediction for time
-//' \eqn{t = n+1}: \eqn{a_{n+1|n}} and \eqn{P_{n+1|n}}.
+//' \strong{Steady-state acceleration.}  Once the innovation variance matrix
+//' \eqn{F_t = Z P_t Z'} has converged (relative Frobenius change \code{< ss_tol}
+//' over one step), the function enters a \emph{steady-state fast path}: the
+//' \eqn{O(d^2)} covariance update is skipped and only the \eqn{O(\mathrm{nnz}(T))}
+//' state-mean update is performed.  The fast path is exited automatically
+//' whenever a time point with missing observations is encountered, since
+//' \eqn{P_t} then changes and convergence must be re-established.
 //'
-//' @returns A scalar number with the value of the log-likelihood.
+//' @param T sparse state-transition matrix (\eqn{d \times d}).
+//'   Use \code{Matrix::Matrix(M, sparse = TRUE)} to convert from dense.
+//' @param R sparse disturbance-input matrix (\eqn{d \times r}).
+//' @param Q dense innovation covariance matrix (\eqn{r \times r}).
+//' @param a1 initial state mean (\eqn{d \times 1} matrix).  Overwritten with
+//'   \eqn{a_{n+1|n}} when \code{update_state = TRUE}.
+//' @param P1 initial state covariance (\eqn{d \times d}).  Overwritten with
+//'   \eqn{P_{n+1|n}} when \code{update_state = TRUE}.
+//' @param Yt observations in \emph{column-time} layout (\eqn{m \times n}).
+//' @param update_state if \code{TRUE}, \code{a1} and \code{P1} are overwritten
+//'   with the one-step-ahead predicted state at \eqn{t = n+1} (default
+//'   \code{FALSE}).
+//' @param ss_tol relative convergence tolerance for steady-state detection:
+//'   \eqn{\|F_t - F_{t-1}\|_F / \max(\|F_{t-1}\|_F, 1) < \texttt{ss\_tol}}
+//'   (default \code{1e-8}).
+//'
+//' @return Scalar log-likelihood value.
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
 double kalmanLogLik(const arma::sp_mat& T,
                     const arma::sp_mat& R,
-                    const arma::mat& Q,
-                    arma::mat& a1,
-                    arma::mat& P1,
-                    const arma::mat& Yt,
-                    const bool update_state = false) { // to write a_{n+1}, P_{n+1} in a1 P1
-  const arma::uword n = Yt.n_cols; // n. of observations
-  const arma::uword m = Yt.n_rows; // n. of observed variables
-  const arma::uword p = T.n_rows;  // n. of state variables
-  double loglik = 0;
+                    const arma::mat&    Q,
+                          arma::mat&    a1,
+                          arma::mat&    P1,
+                    const arma::mat&    Yt,
+                    const bool          update_state = false,
+                    const double        ss_tol       = 1e-8) {
 
-  // --- NEW LOGIC FOR CONDITIONAL UPDATE ---
+  const arma::uword n = Yt.n_cols;   // number of time points
+  const arma::uword m = Yt.n_rows;   // number of observed series
+  const arma::uword d = T.n_rows;    // state dimension
+  double loglik = 0.0;
 
-  // 1. Create local matrices to serve as temporary copies if needed.
-  arma::mat a1_local;
-  arma::mat P1_local;
-
-  // 2. Use references to select the target matrices.
-  // If update_state is true, 'at' will refer to 'a1' (the original R matrix).
-  // If update_state is false, 'at' will refer to the local copy 'a1_local'.
+  // ------------------------------------------------------------------
+  // Route at/Pt to either the caller's matrices (update_state=true) or
+  // local copies (update_state=false) via non-const references.
+  // ------------------------------------------------------------------
+  arma::mat a1_local, P1_local;
   arma::mat& at = update_state ? a1 : a1_local;
   arma::mat& Pt = update_state ? P1 : P1_local;
+  if (!update_state) { at = a1; Pt = P1; }
 
-  // 3. If we are NOT updating in place, initialize the local copies.
-  if (!update_state) {
-    at = a1; // This copies a1's data into a1_local
-    Pt = P1; // This copies P1's data into P1_local
-  }
+  // ------------------------------------------------------------------
+  // Constants precomputed once outside the filter loop
+  // ------------------------------------------------------------------
+  const arma::sp_mat Tt   = T.t();
+  const arma::mat    RQRt = arma::mat(R * Q * R.t());   // dense d×d
 
-  // --- From here, the rest of the code works on 'at' and 'Pt' ---
-  // It transparently modifies either the originals or the copies.
-
-  arma::mat v(m, 1);
-  arma::mat F(m, m);
-  arma::mat iF(m, m);
-  arma::mat PZt(p, m);
-  arma::mat TPZt(p, m);
-  arma::mat K(p, m);
-  const arma::sp_mat Tt = T.t();
-  const arma::mat RQRt = R * Q * R.t();
-  arma::colvec y0;
-  arma::sp_mat Z0;
+  // ------------------------------------------------------------------
+  // Pre-allocated workspace (avoids repeated heap allocation per step)
+  // ------------------------------------------------------------------
+  arma::mat  v(m, 1), F(m, m), iF(m, m);
+  arma::mat  PZt(d, m), TPZt(d, m), K(d, m);
   arma::uvec notna;
-  bool pass = FALSE;
+  bool pass;
 
-  for (arma::uword t=0; t < n; ++t) {
-    notna = find_finite(Yt.col(t));
-    if (notna.n_elem == m) { // no missing obs in y
-      v = Yt.col(t) - at.rows(0, m-1);
-      PZt = Pt.cols(0, m-1);
-      F = Pt(span(0, m-1), span(0, m-1));
-      F = (F + F.t())/2;
-      pass = inv_sympd(iF, F);
-      if (!pass) return -datum::inf;
-      loglik += (log_det_sympd(F) + v.t()*iF*v).eval()(0,0) + m*M_LOG2PI;
-      TPZt = T*PZt;
-      K = TPZt*iF;
-      at = T*at + K*v;
-      Pt = T*Pt*Tt - K*F*K.t() + RQRt;
-      continue;
+  // ------------------------------------------------------------------
+  // Steady-state tracking
+  //
+  // Once F has converged we store the frozen quantities and skip the
+  // O(d²) covariance update.  On any step with missing data we exit
+  // steady state, restore the frozen P, and reset the convergence
+  // counter so that re-convergence is detected afresh.
+  // ------------------------------------------------------------------
+  bool      ss_reached    = false;   // are we in steady-state fast path?
+  bool      F_initialized = false;   // have we seen at least one full-obs step?
+  arma::mat P_ss;                    // P frozen at steady state
+  arma::mat K_ss;                    // Kalman gain at steady state
+  arma::mat iF_ss;                   // F^{-1} at steady state
+  arma::mat F_prev;                  // F from the previous full-obs step
+  double    logdet_F_ss = 0.0;       // log|F_ss| (constant in fast path)
+
+  for (arma::uword t = 0; t < n; ++t) {
+    notna = arma::find_finite(Yt.col(t));
+
+    // ----------------------------------------------------------------
+    // FAST PATH: steady state + all observations present
+    // Skip the O(d²) covariance update entirely.
+    // ----------------------------------------------------------------
+    if (ss_reached && notna.n_elem == m) {
+      v       = Yt.col(t) - at.rows(0, m - 1);
+      loglik += logdet_F_ss + arma::as_scalar(v.t() * iF_ss * v) + m * M_LOG2PI;
+      at      = T * at + K_ss * v;   // sparse T × dense at: O(nnz(T))
+      continue;                      // Pt stays at P_ss — no update needed
     }
-    if (notna.is_empty()) { // all obs in y missing
-      at = T*at;
-      Pt = T*Pt*Tt + RQRt;
-      continue;
+
+    // ----------------------------------------------------------------
+    // Exit steady state when missing observations are encountered.
+    // P was frozen at P_ss since convergence; restore it before the
+    // standard update that follows.
+    // ----------------------------------------------------------------
+    if (ss_reached) {
+      Pt            = P_ss;
+      ss_reached    = false;
+      F_initialized = false;   // force a fresh convergence run
     }
-    // y partially missing
-    y0 = Yt.col(t).eval()(notna);
-    v = y0 - at.rows(notna);
-    PZt = Pt.cols(notna);
-    F = Pt(notna, notna);
-    pass = inv_sympd(iF, F);
-    if (!pass) return -datum::inf;
-    loglik += (real(log_det(F)) + v.t()*iF*v).eval()(0,0) + notna.n_elem*M_LOG2PI;
-    TPZt = T*PZt;
-    K = TPZt*iF;
-    at = T*at + K*v;
-    Pt = T*Pt*Tt - K*F*K.t() + RQRt;
+
+    // ----------------------------------------------------------------
+    // Standard Kalman update
+    // ----------------------------------------------------------------
+    if (notna.n_elem == m) {
+      // All observations present ------------------------------------ //
+      v    = Yt.col(t) - at.rows(0, m - 1);
+      PZt  = Pt.cols(0, m - 1);                        // P * Z'  (Z = [I|0])
+      F    = Pt(arma::span(0, m - 1), arma::span(0, m - 1));
+      F    = (F + F.t()) * 0.5;                         // enforce symmetry
+      pass = arma::inv_sympd(iF, F);
+      if (!pass) return -arma::datum::inf;
+      loglik += arma::as_scalar(arma::log_det_sympd(F)) +
+                arma::as_scalar(v.t() * iF * v) + m * M_LOG2PI;
+      TPZt = T * PZt;
+      K    = TPZt * iF;
+      at   = T * at + K * v;
+      Pt   = T * Pt * Tt - K * F * K.t() + RQRt;
+
+      // --- Steady-state convergence check ---
+      // Declare SS when the relative change in F is below ss_tol.
+      // We need at least two consecutive full-obs steps to compare.
+      if (F_initialized) {
+        const double dF = arma::norm(F - F_prev, "fro");
+        const double nF = std::max(arma::norm(F_prev, "fro"), 1.0);
+        if (dF < ss_tol * nF) {
+          ss_reached  = true;
+          P_ss        = Pt;                                       // freeze P
+          K_ss        = K;
+          iF_ss       = iF;
+          logdet_F_ss = arma::as_scalar(arma::log_det_sympd(F)); // scalar cache
+        }
+      }
+      F_prev        = F;
+      F_initialized = true;
+
+    } else if (notna.is_empty()) {
+      // All observations missing ------------------------------------ //
+      at            = T * at;
+      Pt            = T * Pt * Tt + RQRt;
+      F_initialized = false;   // P changed; wait for re-convergence
+
+    } else {
+      // Partial missing --------------------------------------------- //
+      // Use separate local variables so the pre-allocated m×m F/iF/K
+      // workspaces (sized for the full-obs case) are not aliased.
+      const arma::vec  Yt_t(Yt.col(t));
+      arma::vec        v_t   = Yt_t.elem(notna) -
+                               arma::vec(at.rows(notna));      // observed residual
+      PZt                    = Pt.cols(notna);                  // d × m_obs
+      arma::mat        F_obs = Pt(notna, notna);                // m_obs × m_obs
+      arma::mat        iF_obs;
+      pass = arma::inv_sympd(iF_obs, F_obs);
+      if (!pass) return -arma::datum::inf;
+      loglik += arma::as_scalar(arma::log_det_sympd(F_obs)) +
+                arma::as_scalar(v_t.t() * iF_obs * v_t) +
+                static_cast<double>(notna.n_elem) * M_LOG2PI;
+      TPZt           = T * PZt;
+      arma::mat K_obs = TPZt * iF_obs;
+      at             = T * at + K_obs * v_t;
+      Pt             = T * Pt * Tt - K_obs * F_obs * K_obs.t() + RQRt;
+      F_initialized  = false;   // P changed; wait for re-convergence
+    }
   }
 
-  // The 'if (update_state)' block at the end is no longer needed,
-  // as this logic is now handled at the beginning.
-
-  return -0.5*loglik;
+  return -0.5 * loglik;
 }
 
 
