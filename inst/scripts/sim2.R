@@ -229,7 +229,8 @@ experiment <- function(varma, n = 100, h = 5, nsim = 1000) {
     irfs = list_irf,
     irf_mse = list_irf_mse,
     pre = list_pre,
-    pre_err = list_pre_err
+    pre_err = list_pre_err,
+    time = list_time
   )
 }
 
@@ -516,9 +517,410 @@ fcst_plts[[5]]
 fcst_plts[[6]]
 
 
-irf_quantiles <- function(res, h, perc = c(0.1, 0.5, 0.9)) {
-  out <- vector("list", length(results))
-  for (i in 1:length(out)) {
+irf_quantiles <- function(experiment, h, perc = c(0.1, 0.5, 0.9)) {
+  lapply(experiment$irfs, function(x)
+         vapply(x, identity,
+                FUN.VALUE = array(0, c(dim(experiment$irfs[[1]][[1]]), length(dim(experiment$irfs[[1]]))))
+         )
+  )
+}
 
+
+
+# NEW
+
+
+
+#' Plot the simulated distribution of IRF estimates around the true IRF
+#'
+#' Returns a named list of \code{m * m} ggplot objects, one per entry \code{(i,j)}
+#' of the IRF matrix.  Within each plot the facets correspond to estimation
+#' methods, making cross-method comparison straightforward.
+#'
+#' @param sim Named list, one entry per estimation method.  Each entry
+#'   is a list of \code{n_sim} arrays of dimension \code{(m, m, n_lags)}, where
+#'   \code{m} is the number of variables and \code{n_lags} the number of lags
+#'   (e.g. 6 for lags 0..5).
+#' @param probs       Length-4 strictly-increasing numeric vector in \code{(0,1)}.
+#'   \code{[probs[1], probs[4]]} is the outer (light) band;
+#'   \code{[probs[2], probs[3]]} is the inner (dark) band.
+#'   Default: \code{c(0.05, 0.25, 0.75, 0.95)}.
+#' @param alpha_inner Opacity of the inner quantile band.  Default 0.35.
+#' @param alpha_outer Opacity of the outer quantile band.  Default 0.15.
+#' @param colors      Optional named character vector of colors, one per method.
+#'   Each method's facet is drawn in its own color, giving a consistent palette
+#'   across all returned plots.  If \code{NULL} ggplot2's default palette is used.
+#' @param true_color  Color of the true IRF line.  Default \code{"black"}.
+#' @param true_lwd    Line width of the true IRF line.  Default 0.9.
+#' @param var_names   Character vector of length \code{m} labelling the
+#'   responding variables.  Defaults to \code{"y1", "y2", ...}.
+#' @param shock_names Character vector of length \code{m} labelling the shocks.
+#'   Defaults to \code{var_names}.
+#' @param ncol        Number of columns in \code{facet_wrap} (one facet per
+#'   method).  \code{NULL} lets ggplot2 choose automatically.
+#'
+#' @return A named list of \code{m * m} ggplot objects.  Names are
+#'   \code{"<response>_<shock>"} (e.g. \code{"y1_y2"}).  Index naturally as
+#'   \code{plots[["y1_y2"]]} or iterate with \code{lapply}.
+#'
+#' @examples
+#' \dontrun{
+#' plots <- plot_irf_distribution(sim_results, pop_irf,
+#'                                var_names = c("GDP", "Infl", "Rate"))
+#'
+#' # Print a single panel
+#' print(plots[["GDP_Rate"]])
+#'
+#' # Arrange all panels in a grid (requires patchwork)
+#' library(patchwork)
+#' wrap_plots(plots, ncol = 3)
+#'
+#' # Save every panel
+#' for (nm in names(plots))
+#'   ggsave(paste0("irf_", nm, ".pdf"), plots[[nm]], width = 8, height = 4)
+#' }
+plot_irf_distribution <- function(sim,
+                                  probs       = c(0.05, 0.25, 0.75, 0.95),
+                                  alpha_inner = 0.6,
+                                  alpha_outer = 0.3,
+                                  colors      = NULL,
+                                  true_color  = "black",
+                                  true_lwd    = 0.9,
+                                  var_names   = NULL,
+                                  shock_names = NULL,
+                                  ncol        = NULL) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE))
+    stop("Package 'ggplot2' is required.")
+
+  # ── Validate inputs ───────────────────────────────────────────────────────────
+  if (length(probs) != 4L || !all(diff(probs) > 0) ||
+      probs[1L] < 0 || probs[4L] > 1)
+    stop("`probs` must be a strictly increasing length-4 vector in (0, 1).")
+
+  sim_results <- sim$irfs
+  pop_irf     <- irf(sim$dgp, sim$h)
+  title       <- sim$description
+  m      <- dim(pop_irf)[1L]
+  n_lags <- dim(pop_irf)[3L]
+  lags   <- seq_len(n_lags) - 1L          # 0, 1, ..., n_lags - 1
+
+  methods <- names(sim_results)
+  if (is.null(methods)) methods <- paste0("Method ", seq_along(sim_results))
+  names(sim_results) <- methods
+
+  if (is.null(var_names))   var_names   <- paste0("y", seq_len(m))
+  if (is.null(shock_names)) shock_names <- var_names
+  if (length(var_names)   != m) stop("`var_names` must have length m.")
+  if (length(shock_names) != m) stop("`shock_names` must have length m.")
+
+  # ── 1. Compute quantiles for every (method, row, col, lag) ───────────────────
+  # expand.grid: row varies fastest → matches array column-major order
+  base_grid <- expand.grid(
+    row = seq_len(m), col = seq_len(m), lag = lags,
+    KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
+  )
+
+  q_probs <- c(probs, 0.5)                        # lo2, lo1, hi1, hi2, median
+  q_names <- c("lo2", "lo1", "hi1", "hi2", "med")
+
+  chunks <- vector("list", length(methods))
+
+  for (k in seq_along(methods)) {
+    sims  <- sim_results[[methods[k]]]
+    n_sim <- length(sims)
+
+    # Stack into (m, m, n_lags, n_sim); unlist preserves column-major order
+    irf_4d <- array(unlist(sims), dim = c(m, m, n_lags, n_sim))
+
+    # Quantiles over simulation dim → (5, m, m, n_lags)
+    q_arr <- apply(irf_4d, MARGIN = 1:3,
+                   FUN = quantile, probs = q_probs, na.rm = TRUE)
+
+    chunk <- base_grid
+    for (qi in seq_along(q_names))
+      chunk[[q_names[qi]]] <- as.vector(q_arr[qi, , , ])
+    chunk$method <- methods[k]
+    chunks[[k]]  <- chunk
   }
+
+  df        <- do.call(rbind, chunks)
+  df$method <- factor(df$method, levels = methods)
+
+  # ── 2. Population IRF in long form ────────────────────────────────────────────
+  pop_df       <- base_grid
+  pop_df$value <- as.vector(pop_irf)   # column-major: row fastest → matches base_grid
+
+  # ── 3. Colors (one per method, consistent across all returned plots) ──────────
+  if (!is.null(colors)) {
+    colors <- setNames(as.character(colors), methods)
+  } else {
+    # Use ggplot2's default discrete hues so fill/color are consistent
+    gg_colors <- scales::hue_pal()(length(methods))
+    colors <- setNames(gg_colors, methods)
+  }
+
+  # ── 4. Shared caption ─────────────────────────────────────────────────────────
+  pct <- function(p) paste0(round(p * 100L), "%")
+  caption_txt <- sprintf(
+    paste0("Shaded bands: [%s–%s] inner and [%s–%s] outer quantile ",
+           "intervals. Solid lines: medians. Dashed: true IRF."),
+    pct(probs[2L]), pct(probs[3L]), pct(probs[1L]), pct(probs[4L])
+  )
+
+  # ── 5. Shared theme ───────────────────────────────────────────────────────────
+  base_theme <- ggplot2::theme_bw(base_size = 11) +
+    ggplot2::theme(
+      legend.position   = "none",           # facet label already identifies method
+      strip.background  = ggplot2::element_rect(fill = "grey94", color = "grey70"),
+      strip.text        = ggplot2::element_text(face = "bold", size = 9),
+      panel.grid.minor  = ggplot2::element_blank(),
+      plot.caption      = ggplot2::element_text(hjust = 0, size = 7.5,
+                                                color = "grey40"),
+      plot.title        = ggplot2::element_text(face = "bold", size = 11),
+      plot.subtitle     = ggplot2::element_text(size = 9, color = "grey30")
+    )
+
+  # ── 6. One plot per (i, j) IRF entry ─────────────────────────────────────────
+  plots      <- vector("list", m * m)
+  plot_names <- character(m * m)
+  k <- 0L
+
+  for (i in seq_len(m)) {
+    for (j in seq_len(m)) {
+      k <- k + 1L
+
+      sub_df  <- df[df$row == i & df$col == j, , drop = FALSE]
+      sub_pop <- pop_df[pop_df$row == i & pop_df$col == j, , drop = FALSE]
+
+      p <- ggplot2::ggplot(
+        sub_df,
+        ggplot2::aes(x = lag, group = method, color = method, fill = method)
+      ) +
+        # Outer quantile band
+        ggplot2::geom_ribbon(
+          ggplot2::aes(ymin = lo2, ymax = hi2),
+          alpha = alpha_outer, color = NA
+        ) +
+        # Inner quantile band
+        ggplot2::geom_ribbon(
+          ggplot2::aes(ymin = lo1, ymax = hi1),
+          alpha = alpha_inner, color = NA
+        ) +
+        # Median line
+        ggplot2::geom_line(ggplot2::aes(y = med), linewidth = 0.55) +
+        # Zero reference
+        ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, color = "grey55") +
+        # True IRF (same in every method facet)
+        ggplot2::geom_line(
+          data        = sub_pop,
+          mapping     = ggplot2::aes(x = lag, y = value),
+          color       = true_color,
+          linewidth   = true_lwd,
+          linetype    = "dashed",
+          inherit.aes = FALSE
+        ) +
+        # Facets = methods
+        ggplot2::facet_wrap(
+          ggplot2::vars(method),
+          ncol   = ncol,
+          scales = "fixed"
+        ) +
+        # Method-consistent colors (facet fill matches band fill even without legend)
+        ggplot2::scale_color_manual(values = colors) +
+        ggplot2::scale_fill_manual(values  = colors) +
+        ggplot2::scale_x_continuous(breaks = lags) +
+        ggplot2::labs(
+          title = title,
+          subtitle    = sprintf("Response: %s  —  Shock: %s",
+                             var_names[i], shock_names[j]),
+          # subtitle = sprintf("IRF[%d, %d]", i, j),
+          x        = "Lag",
+          y        = "IRF"#,
+          # caption  = caption_txt
+        ) +
+        base_theme
+
+      plots[[k]]     <- p
+      plot_names[[k]] <- paste0(var_names[i], "_", shock_names[j])
+    }
+  }
+
+  names(plots) <- plot_names
+  plots
+}
+
+
+plot_fcst_distribution <- function(sim,
+                                   probs       = c(0.05, 0.25, 0.75, 0.95),
+                                   alpha_inner = 0.6,
+                                   alpha_outer = 0.3,
+                                   colors      = NULL,
+                                   true_color  = "black",
+                                   true_lwd    = 0.9,
+                                   var_names   = NULL,
+                                   ncol        = NULL) {
+
+  if (!requireNamespace("ggplot2", quietly = TRUE))
+    stop("Package 'ggplot2' is required.")
+
+  # ── Validate inputs ───────────────────────────────────────────────────────────
+  if (length(probs) != 4L || !all(diff(probs) > 0) ||
+      probs[1L] < 0 || probs[4L] > 1)
+    stop("`probs` must be a strictly increasing length-4 vector in (0, 1).")
+
+  sim_results <- sim$pre_err
+  title       <- sim$description
+  m      <- dim(sim$y[[1]])[2]
+  n_lags <- sim$h
+  lags   <- seq_len(n_lags)          # 1, ..., n_lags
+
+  methods <- names(sim_results)
+  if (is.null(methods)) methods <- paste0("Method ", seq_along(sim_results))
+  names(sim_results) <- methods
+
+  if (is.null(var_names))   var_names   <- paste0("y", seq_len(m))
+  if (length(var_names)   != m) stop("`var_names` must have length m.")
+
+  # ── 1. Compute quantiles for every (method, row, col, lag) ───────────────────
+  # expand.grid: row varies fastest → matches array column-major order
+  base_grid <- expand.grid(
+    col = seq_len(m), lag = lags,
+    KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
+  )
+
+  q_probs <- c(probs, 0.5)                        # lo2, lo1, hi1, hi2, median
+  q_names <- c("lo2", "lo1", "hi1", "hi2", "med")
+
+  chunks <- vector("list", length(methods))
+  rmse <- matrix(0, n_lags, length(methods), dimnames = list(1:n_lags, methods))
+
+  for (k in seq_along(methods)) {
+    cat("method", methods[k], "\n")
+    sims  <- sim_results[[methods[k]]]
+    if (is.list(sims)) sims <- array(unlist(sims), dim = c(n_lags, m, length(sims)))
+    n_sim <- dim(sims)[3]
+
+    # Quantiles over simulation dim → (5, m, n_lags)
+    q_arr <- apply(sims, MARGIN = 1:2,
+                   FUN = quantile, probs = q_probs, na.rm = TRUE)
+
+    # RMSE
+    rmse[, k] <- apply(sims^2, 1, median, na.rm = TRUE)
+
+    chunk <- base_grid
+    for (qi in seq_along(q_names))
+      chunk[[q_names[qi]]] <- as.vector(q_arr[qi, , ])
+    chunk$method <- methods[k]
+    chunks[[k]]  <- chunk
+  }
+  print(rmse)
+
+  df        <- do.call(rbind, chunks)
+  df$method <- factor(df$method, levels = methods)
+
+  # ── 3. Colors (one per method, consistent across all returned plots) ──────────
+  if (!is.null(colors)) {
+    colors <- setNames(as.character(colors), methods)
+  } else {
+    # Use ggplot2's default discrete hues so fill/color are consistent
+    gg_colors <- scales::hue_pal()(length(methods))
+    colors <- setNames(gg_colors, methods)
+  }
+
+  # ── 4. Shared caption ─────────────────────────────────────────────────────────
+  pct <- function(p) paste0(round(p * 100L), "%")
+  caption_txt <- sprintf(
+    paste0("Shaded bands: [%s–%s] inner and [%s–%s] outer quantile ",
+           "intervals. Solid lines: medians."),
+    pct(probs[2L]), pct(probs[3L]), pct(probs[1L]), pct(probs[4L])
+  )
+
+  # ── 5. Shared theme ───────────────────────────────────────────────────────────
+  base_theme <- ggplot2::theme_bw(base_size = 11) +
+    ggplot2::theme(
+      legend.position   = "none",           # facet label already identifies method
+      strip.background  = ggplot2::element_rect(fill = "grey94", color = "grey70"),
+      strip.text        = ggplot2::element_text(face = "bold", size = 9),
+      panel.grid.minor  = ggplot2::element_blank(),
+      plot.caption      = ggplot2::element_text(hjust = 0, size = 7.5,
+                                                color = "grey40"),
+      plot.title        = ggplot2::element_text(face = "bold", size = 11),
+      plot.subtitle     = ggplot2::element_text(size = 9, color = "grey30")
+    )
+
+  # ── 6. One plot per (i, j) IRF entry ─────────────────────────────────────────
+  plots      <- vector("list", m)
+  plot_names <- character(m)
+  k <- 0L
+
+  for (i in seq_len(m)) {
+      k <- k + 1L
+
+      sub_df  <- df[df$col == i, , drop = FALSE]
+
+      p <- ggplot2::ggplot(
+        sub_df,
+        ggplot2::aes(x = lag, group = method, color = method, fill = method)
+      ) +
+        # Outer quantile band
+        ggplot2::geom_ribbon(
+          ggplot2::aes(ymin = lo2, ymax = hi2),
+          alpha = alpha_outer, color = NA
+        ) +
+        # Inner quantile band
+        ggplot2::geom_ribbon(
+          ggplot2::aes(ymin = lo1, ymax = hi1),
+          alpha = alpha_inner, color = NA
+        ) +
+        # Median line
+        ggplot2::geom_line(ggplot2::aes(y = med), linewidth = 0.55) +
+        # Zero reference
+        ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, color = "grey55") +
+        # Facets = methods
+        ggplot2::facet_wrap(
+          ggplot2::vars(method),
+          ncol   = ncol,
+          scales = "fixed"
+        ) +
+        # Method-consistent colors (facet fill matches band fill even without legend)
+        ggplot2::scale_color_manual(values = colors) +
+        ggplot2::scale_fill_manual(values  = colors) +
+        ggplot2::scale_x_continuous(breaks = lags) +
+        ggplot2::labs(
+          title = title,
+          subtitle    = sprintf("Time Series: %s",
+                                var_names[i]),
+          # subtitle = sprintf("IRF[%d, %d]", i, j),
+          x        = "Horizon",
+          y        = "Forecast error"#,
+          # caption  = caption_txt
+        ) +
+        base_theme
+
+      plots[[k]]     <- p
+      plot_names[[k]] <- var_names[i]
+  }
+
+  names(plots) <- plot_names
+  plots
+}
+
+
+
+# USE IT
+
+g <- plot_irf_distribution(results$experiment_12)
+print(g$y1_y2)
+
+gf <- plot_fcst_distribution(results$experiment_8)
+
+for (i in seq_along(results)) {
+  g <- plot_irf_distribution(results[[i]])
+  ggsave(filename = paste0("experiment", i, ".pdf"), plot = g$y1_y2)
+}
+
+for (i in seq_along(results)) {
+  gf <- plot_fcst_distribution(results[[i]])
+  ggsave(filename = paste0("experiment", i, "_fcst_err.pdf"), plot = gf$y1)
 }
