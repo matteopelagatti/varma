@@ -356,6 +356,28 @@ save(results, file = "results.Rdata")
 
 
 # functions to extract contents from the simulations
+time_extract <- function(res, log = TRUE) {
+  tab <- sapply(
+    res,
+     function(x) sapply(x$time, function(y) unname(y[1]))
+  )
+  cbind(data.frame(Method = rownames(tab)),
+        as.data.frame(tab)) |>
+    pivot_longer(contains("Experiment"),
+                 names_to = "Experiment",
+                 values_to = "Seconds") ->
+    tab
+  tab <- tab |> rowwise() |>  mutate(n = res[[Experiment]]$n)
+  tab$Model <- rep(rep(paste("Model", 1:4), 3), 7)
+  tab |>
+    ggplot(aes(x = Method, y = Seconds, fill = Method)) +
+    geom_col() +
+    facet_grid(rows = vars(n), cols = vars(Model)) +
+    guides(fill = "none") -> g
+  if (log) g + scale_y_log10() else g
+}
+
+
 tf_rmse_plot <- function(experiment, outliers = FALSE, col = "lightblue") {
   irf_mse <- lapply(experiment$irf_mse, unlist)
   boxplot(irf_mse,
@@ -366,7 +388,6 @@ tf_rmse_plot <- function(experiment, outliers = FALSE, col = "lightblue") {
   print(sapply(irf_mse, length))
   sapply(irf_mse, summary)
 }
-
 
 
 tf_rmse_ggplot <- function(res, outliers = FALSE, models = NA) {
@@ -402,7 +423,7 @@ tf_rmse_ggplot <- function(res, outliers = FALSE, models = NA) {
 
   dt |>
     group_by(Estimate, n, DGP) |>
-    summarise(RMSE = sqrt(mean(RMSE^2))) |>
+    summarise(RMSE = sqrt(mean(RMSE^2, trim = 0.01))) |>
     ggplot(aes(x = n, y = RMSE, color = DGP)) +
     geom_smooth(formula = y~I(sqrt(1/x)), method = "lm", se = FALSE, show.legend = FALSE) +
     geom_point(show.legend = FALSE, color = "black") +
@@ -504,29 +525,6 @@ fcst_rmse_ggplot <- function(res, outliers = FALSE, models = NA) {
     gg6
 
   list(gg1, gg2, gg3, gg4, gg5, gg6)
-}
-
-load("results.Rdata")
-
-tf_plts <- tf_rmse_ggplot(results, models = rep(paste("Model", 1:4), 3))
-tf_plts[[1]]
-tf_plts[[2]]
-
-fcst_plts <- fcst_rmse_ggplot(results, models = rep(paste("Model", 1:4), 3))
-fcst_plts[[1]]
-fcst_plts[[2]]
-fcst_plts[[3]]
-fcst_plts[[4]]
-fcst_plts[[5]]
-fcst_plts[[6]]
-
-
-irf_quantiles <- function(experiment, h, perc = c(0.1, 0.5, 0.9)) {
-  lapply(experiment$irfs, function(x)
-         vapply(x, identity,
-                FUN.VALUE = array(0, c(dim(experiment$irfs[[1]][[1]]), length(dim(experiment$irfs[[1]]))))
-         )
-  )
 }
 
 
@@ -763,7 +761,8 @@ plot_fcst_distribution <- function(sim,
                                    true_color  = "black",
                                    true_lwd    = 0.9,
                                    var_names   = NULL,
-                                   ncol        = NULL) {
+                                   ncol        = NULL,
+                                   ret_array   = FALSE) {
 
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Package 'ggplot2' is required.")
@@ -797,7 +796,8 @@ plot_fcst_distribution <- function(sim,
   q_names <- c("lo2", "lo1", "hi1", "hi2", "med")
 
   chunks <- vector("list", length(methods))
-  rmse <- matrix(0, n_lags, length(methods), dimnames = list(1:n_lags, methods))
+  rmse <- array(0, c(n_lags, m, length(methods)),
+                dimnames = list(1:n_lags, paste0("y", 1:m), methods))
 
   for (k in seq_along(methods)) {
     cat("method", methods[k], "\n")
@@ -810,7 +810,7 @@ plot_fcst_distribution <- function(sim,
                    FUN = quantile, probs = q_probs, na.rm = TRUE)
 
     # RMSE
-    rmse[, k] <- apply(sims^2, 1, median, na.rm = TRUE)
+    rmse[, , k] <- apply(sims^2, 1:2, function(x) sqrt(mean(x[abs(x)<10]^2, na.rm = TRUE)))
 
     chunk <- base_grid
     for (qi in seq_along(q_names))
@@ -818,7 +818,12 @@ plot_fcst_distribution <- function(sim,
     chunk$method <- methods[k]
     chunks[[k]]  <- chunk
   }
-  print(rmse)
+  if (ret_array) {
+    adf <- as.data.frame.table(rmse)
+    names(adf) <- c("Horizon", "Variable", "Method", "RMSE")
+    adf$Horizon <- as.integer(adf$Horizon)
+    return(adf)
+  }
 
   df        <- do.call(rbind, chunks)
   df$method <- factor(df$method, levels = methods)
@@ -914,17 +919,128 @@ plot_fcst_distribution <- function(sim,
 
 # USE IT
 
-g <- plot_irf_distribution(results$experiment_12)
-print(g$y1_y2)
+load("results.Rdata")
 
-gf <- plot_fcst_distribution(results$experiment_8)
+fig_path <- "D:/Dropbox/Dropbox/Applicazioni/Overleaf/VARMA identification/figures/"
 
-for (i in seq_along(results)) {
-  g <- plot_irf_distribution(results[[i]])
-  ggsave(filename = paste0("experiment", i, ".pdf"), plot = g$y1_y2)
-}
+tf_plts <- tf_rmse_ggplot(results, models = rep(paste("Model", 1:4), 3))
+tf_plts[[1]]
+tf_plts[[2]]
 
-for (i in seq_along(results)) {
-  gf <- plot_fcst_distribution(results[[i]])
-  ggsave(filename = paste0("experiment", i, "_fcst_err.pdf"), plot = gf$y1)
-}
+fcst_plts <- fcst_rmse_ggplot(results, models = rep(paste("Model", 1:4), 3))
+fcst_plts[[1]]
+fcst_plts[[2]]
+fcst_plts[[3]]
+fcst_plts[[4]]
+fcst_plts[[5]]
+fcst_plts[[6]]
+
+
+g_time <- time_extract(results, log = TRUE)
+ggsave("log_times.pdf",
+       plot = g_time,
+       path = fig_path,
+       width = 10, height = 6)
+
+g_cons <- tf_rmse_ggplot(results, models = rep(paste("Model", 1:4), 3))
+ggsave("tf_consist.pdf",
+       plot = g_cons[[2]],
+       path = fig_path,
+       width = 10, height = 6)
+
+g1 <- plot_irf_distribution(results$experiment_1)
+ggsave("irf_exp1.pdf",
+       plot = g1$y1_y1,
+       path = fig_path,
+       width = 10, height = 6)
+g2 <- plot_irf_distribution(results$experiment_2)
+ggsave("irf_exp2.pdf",
+       plot = g2$y1_y1,
+       path = fig_path,
+       width = 10, height = 6)
+g3 <- plot_irf_distribution(results$experiment_3)
+ggsave("irf_exp3.pdf",
+       plot = g3$y1_y1,
+       path = fig_path,
+       width = 10, height = 6)
+g4 <- plot_irf_distribution(results$experiment_4)
+ggsave("irf_exp4.pdf",
+       plot = g4$y1_y1,
+       path = fig_path,
+       width = 10, height = 6)
+
+# forecasts
+
+gf1 <- plot_fcst_distribution(results$experiment_1)
+gf2 <- plot_fcst_distribution(results$experiment_2)
+gf3 <- plot_fcst_distribution(results$experiment_3)
+gf4 <- plot_fcst_distribution(results$experiment_4)
+
+rmse1 <- plot_fcst_distribution(results$experiment_1, ret_array = TRUE)
+rmse2 <- plot_fcst_distribution(results$experiment_2, ret_array = TRUE)
+rmse3 <- plot_fcst_distribution(results$experiment_3, ret_array = TRUE)
+rmse4 <- plot_fcst_distribution(results$experiment_4, ret_array = TRUE)
+
+# plot RMSE
+base_theme <- ggplot2::theme_bw(base_size = 11) +
+  ggplot2::theme(
+    strip.background  = ggplot2::element_rect(fill = "grey94", color = "grey70"),
+    strip.text        = ggplot2::element_text(face = "bold", size = 9),
+    panel.grid.minor  = ggplot2::element_blank(),
+    plot.caption      = ggplot2::element_text(hjust = 0, size = 7.5,
+                                              color = "grey40"),
+    plot.title        = ggplot2::element_text(face = "bold", size = 11),
+    plot.subtitle     = ggplot2::element_text(size = 9, color = "grey30")
+  )
+
+rmse1 |> filter(Variable == "y1") |>
+  ggplot(aes(x = Horizon, y = RMSE, color = Method)) +
+  geom_line() + geom_point(aes(shape = Method)) +
+  labs(title = results$experiment_1$description,
+       subtitle = "y1") +
+  base_theme ->
+  grmse1
+
+rmse2 |> filter(Variable == "y1") |>
+  ggplot(aes(x = Horizon, y = RMSE, color = Method)) +
+  geom_line() + geom_point(aes(shape = Method)) +
+  labs(title = results$experiment_2$description,
+       subtitle = "y1") +
+  base_theme ->
+  grmse2
+
+rmse3 |> filter(Variable == "y1") |>
+  ggplot(aes(x = Horizon, y = RMSE, color = Method)) +
+  geom_line() + geom_point(aes(shape = Method)) +
+  labs(title = results$experiment_3$description,
+       subtitle = "y1") +
+  base_theme ->
+  grmse3
+
+rmse4 |> filter(Variable == "y1") |>
+  ggplot(aes(x = Horizon, y = RMSE, color = Method)) +
+  geom_line() + geom_point(aes(shape = Method)) +
+  labs(title = results$experiment_4$description,
+       subtitle = "y1") +
+  base_theme ->
+  grmse4
+
+ggsave("fcst_rmse1.pdf",
+       plot = grmse1,
+       path = fig_path,
+       width = 8, height = 5)
+
+ggsave("fcst_rmse2.pdf",
+       plot = grmse2,
+       path = fig_path,
+       width = 8, height = 5)
+
+ggsave("fcst_rmse3.pdf",
+       plot = grmse3,
+       path = fig_path,
+       width = 8, height = 5)
+
+ggsave("fcst_rmse4.pdf",
+       plot = grmse4,
+       path = fig_path,
+       width = 8, height = 5)
