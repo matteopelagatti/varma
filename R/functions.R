@@ -176,9 +176,9 @@ print.varma <- function(x, ...) {
     cat("N. of estimated parameters     =", npar, "\n")
     cat("log-lik =", x$loglik, "\n")
     cat("AIC     =", -2*x$loglik + 2*npar, "\n")
-    cat("AICc    =", -2*x$loglik + 2*npar + 2*npar*(npar + 1)/(x$nobs - npar - 1), "\n")
-    cat("BIC     =", -2*x$loglik + npar*log(x$nobs), "\n")
-    cat("HQC     =", -2*x$loglik + npar*log(log(x$nobs)), "\n")
+    cat("AICc    =", -2*x$loglik + 2*npar + 2*npar*(npar + 1)/(x$n - npar - 1), "\n")
+    cat("BIC     =", -2*x$loglik + npar*log(x$n), "\n")
+    cat("HQC     =", -2*x$loglik + npar*log(log(x$n)), "\n")
   }
 }
 
@@ -360,6 +360,20 @@ inv_roots <- function(varma, part = c("ar", "ma"), plot = FALSE) {
   out
 }
 
+#' Check the stability of the VAR and VMA operators of a varma object
+#'
+#' @param varma an object of varma class
+#'
+#' @returns a logical vector with two entries: TRUE if ar/ma stable
+#'
+#' @export
+is_stable <- function(varma) {
+  out <- inv_roots(varma, part = c("ar", "ma"))
+  ar <- if (is.null(out$ar)) TRUE else all(Mod(out$ar) < 1)
+  ma <- if (is.null(out$ma)) TRUE else all(Mod(out$ma) < 1)
+  c(ar = ar, ma = ma)
+}
+
 #' Check if the VARMA process is identified
 #'
 #' The function checks if the VARMA process is identified by numerically checking if the
@@ -426,9 +440,17 @@ irf <- function(varma, maxlag = 10,
                 orth = c("none", "cholesky", "spectral", "generalized"),
                 plot = FALSE,
                 title = NULL,
-                varnames = paste0("y", 1:dim(varma)[1])) {
+                varnames = NULL) {
   orth = match.arg(orth)
   mpq <- dim.varma(varma)
+  if (is.null(varnames)) {
+    varnames <- colnames(varma$y)
+    if (is.null(varnames)) {
+      varnames <- paste0("y", 1:dim(varma)[1])
+    } else {
+      colnames(varma$y)
+    }
+  }
   if (orth == "cholesky") {
     P <- t(chol(varma$cov))
   } else if (orth == "spectral") {
@@ -471,7 +493,7 @@ irf <- function(varma, maxlag = 10,
     if (!is.null(title)) mtext(title, side = 3, outer = TRUE)
     par(old)
   }
-  dimnames(psi) <- list(varnames, varnames, paste0("lag", 0:maxlag))
+  dimnames(psi) <- list(varnames, varnames, paste0(0:maxlag))
   psi
 }
 
@@ -1055,6 +1077,7 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
       loglik = logLik(ssfit$model),
       n = n,
       nobs = sum(!is.na(Y)),
+      npars = length(ssfit$optim.out$par),
       y = Y,
       residuals = ssflt$v,
       state_pred_mean = ssflt$a[n+1, ],
@@ -1178,6 +1201,7 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
         loglik = -optout$value,
         nobs = sum(!is.na(Y)),
         y = Y,
+        npar = length(optout$par),
         residuals = t(ssout$v),
         state_pred_mean = ssout$at[, n+1],
         state_pred_cov  = ssout$Pt[,, n+1],
@@ -1315,6 +1339,7 @@ fit_varma_skf <- function(Y, p, q, intercept = TRUE, maxit = 100) {
       loglik = fin_log_lik,
       n = n,
       nobs = sum(!is.na(Y)),
+      npar = length(ssfit$par),
       y = Y,
       residuals = t(mat_v),
       state_pred_mean = mat_at[, n+1],
@@ -1350,6 +1375,8 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
   n <- nrow(Y)
   m <- ncol(Y)
   if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
+  # if no VMA part, call ihr, that returns the pure VAR regression
+  if (q < 1) return(fit_varma_ihr(Y, p, q, intercept))
 
   # When intercept = TRUE, we work on centered Y.
   if (intercept) {
@@ -1540,6 +1567,8 @@ fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
   n <- nrow(Y)
   m <- ncol(Y)
   if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
+  # if no VMA part, call ihr, that returns the pure VAR regression
+  if (q < 1) return(fit_varma_ihr(Y, p, q, intercept))
 
   # When intercept = TRUE, we work on centered Y.
   if (intercept) {
@@ -1660,6 +1689,9 @@ fit_varma_dpf <- function(Y, p = 1, q = 1, intercept = TRUE,
   n <- nrow(Y)
   m <- ncol(Y)
   if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
+
+  # if no VMA part, call ihr, that returns the pure VAR regression
+  if (q < 1) return(fit_varma_ihr(Y, p, q, intercept))
 
   # When intercept = TRUE, we work on centered Y.
   if (intercept) {
@@ -2280,4 +2312,75 @@ booted_irf <- function(varma_list, maxlag = 10,
     }
   }
   par(old)
+}
+
+
+#' Selct the VARMA order
+#'
+#' It computes an information criterion for all combinations of
+#' p, q, and intercept for determining the VARMA order.
+#'
+#' @param Y matrix of time series.
+#' @param p_max maximum order for the VAR part.
+#' @param q_max maximum order for the VMA part.
+#' @param intercept if FALSE assume no intercept is needed, otherwise.
+#' computes the information criterion both with and without intercept.
+#' @param ic information criterion to use among "AIC", "AICc", "BIC", "HQC".
+#' @param fit_fn fit_varma_??? function to use.
+#' @param ... parameters passed to the fit_varma_??? function
+#'
+#' @returns A data.frame with columns p, q, intercept, ic
+#'
+#' @export
+select_varma_order <- function(Y, p_max = 5, q_max = 5,
+                               intercept = TRUE,
+                               ic = c("AIC", "AICc", "BIC", "HQC"),
+                               fit_fn = fit_varma_ihr,
+                               ...) {
+  ic <- match.arg(ic)
+  m <- ncol(Y)
+  n <- sum(!is.na(Y))/m # compute average number of non-missing values
+  S <- var(Y, na.rm = TRUE)
+  mu_hat      <- colMeans(Y, na.rm = TRUE)
+  res_det     <- determinant(S, logarithm = TRUE)
+  log_det_S   <- as.numeric(res_det$modulus)
+  quad_terms  <- mahalanobis(Y, center = mu_hat, cov = S)
+  quad_terms0 <- mahalanobis(Y, center = FALSE, cov = S)
+  sum_quad    <- sum(quad_terms)
+  sum_quad0   <- sum(quad_terms0)
+  gr <- expand.grid(p = c(0, seq_len(p_max)),
+                    q = c(0, seq_len(q_max)),
+                    intercept = if (intercept) c(FALSE, TRUE) else FALSE,
+                    ic = NA_real_)
+  for (i in seq_len(nrow(gr))) {
+    if (gr$p[i] == 0 && gr$q[i] == 0) { # case p = 0, q = 0
+      if (gr$intercept[i]){ # with intercept
+        loglik <- -(n * m / 2)*log(2 * pi) - (n / 2)*log_det_S - 0.5*sum_quad
+        npar   <- m
+      } else { # without intercept
+        loglik <- -(n * m / 2)*log(2 * pi) - (n / 2)*log_det_S - 0.5*sum_quad0
+        npar   <- 0
+      }
+    } else { # case p > 0 or q > 0
+      loglik <- NA_real_
+      npar   <- NA_integer_
+      tryCatch({
+        fit <- fit_fn(Y = Y, p = gr$p[i], q = gr$q[i], intercept = gr$intercept[i], ...)
+        loglik <- fit$loglik
+        npar <- fit$npar},
+        error = function(e) warning(paste("Could not compute IC for p =", gr$p,
+                                          "q =", gr$q, "\n"))
+      )
+    }
+    gr[i,"ic"] <- switch(ic,
+                         AIC = -2*loglik + 2*npar,
+                         AICc = -2*loglik + 2*npar +
+                           (2*npar*(npar + 1))/(n - npar - 1),
+                         BIC = -2*loglik + npar*log(n),
+                         HQC = -2*loglik + 2*npar*log(log(n))
+                         )
+  }
+  gr$rank <- rank(gr$ic)
+  names(gr)[4] <- ic
+  gr[order(gr$rank),]
 }
