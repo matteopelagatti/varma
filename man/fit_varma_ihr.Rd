@@ -11,7 +11,7 @@ fit_varma_ihr(
   intercept = TRUE,
   maxdiff = 1e-05,
   maxit = 100,
-  r = max(p + q, round(nrow(Y)/(4 * ncol(Y)))),
+  r = .varma_long_order(as.matrix(Y), p, q, intercept),
   ret = c("varma", "regression")
 )
 }
@@ -24,19 +24,22 @@ fit_varma_ihr(
 
 \item{intercept}{logical, if TRUE, the model includes an intercept.}
 
-\item{maxdiff}{maximum difference between the coefficients of two consecutive iterations:
-it is used as a threshold to stop the iterations.}
+\item{maxdiff}{relative tolerance for changes in fitted regression errors.
+Convergence does not require a unique vector of AR and MA coefficients.}
 
 \item{maxit}{maximum number of iterations.}
 
-\item{r}{integer order of the first step VAR(r) model.}
+\item{r}{order of the pilot VAR. The default grows logarithmically with sample
+size and is capped to leave residual degrees of freedom.}
 
 \item{ret}{a character string indicating the type of output: "varma" or "regression".}
 }
 \value{
 If ret = "varma" a varma object, otherwise a list with the following elements:
-coefficients, matrix of residuals, fitted.values, effects, weights, rank,
-df.residual, qr, n_iter, res_cov.
+coefficients, regression residuals, fitted.values, effects, weights, rank,
+df.residual, qr, n_iter, converged, rows, and res_cov. A varma object instead
+stores recursive innovations computed from its final coefficients, with initial
+zeros marked by residuals_start, and convergence/iterations diagnostics.
 }
 \description{
 VARMA estimation using the iterated Hannan-Rissanen method

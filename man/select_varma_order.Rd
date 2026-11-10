@@ -34,6 +34,8 @@ computes the information criterion both with and without intercept.}
 A data.frame with columns p, q, intercept, ic
 }
 \description{
-It computes an information criterion for all combinations of
-p, q, and intercept for determining the VARMA order.
+Computes information criteria over AR/MA orders and intercept choices. Conditional
+likelihoods use a common trimmed sample; stationary likelihoods use the full sample.
+Innovation covariance parameters are counted. Counts are nominal: conventional
+information-criterion theory need not apply at singular representations.
 }

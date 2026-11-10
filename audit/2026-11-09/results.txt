@@ -1,0 +1,129 @@
+VARMA source audit, 2026-11-09
+                     R/functions.R             src/rcpp_functions.cpp 
+"df48931fe753509c4970ae5a9691ff19" "55b684b94ac52ae412c52a8e3f88b3fd" 
+Native routines freshly compiled from src/rcpp_functions.cpp.
+
+--- DPD and DPF: translation equivariance when intercept=TRUE ---
+fit_varma_dpd max AR change: 0.417708425 max MA change: 0.413922284 
+fit_varma_dpf max AR change: 0.441357992 max MA change: 0.375041591 
+
+--- SKF: returned covariance and transition match starting rather than final coefficients ---
+AR coefficients final versus initial: 0.14203528 
+returned covariance versus initial covariance: 0 
+returned transition versus initial transition: 0 
+returned transition versus final coefficient transition: 0.14203528 
+3-step forecasts after only aligning T with returned coefficients; max change: 0.204753193 
+
+--- Sparse likelihood: false steady state for a stable invertible VMA(2) ---
+default fast likelihood: -937.914579 disabled acceleration: -897.198801 full filter: -897.198801 
+F2-F1 max: 0 F3-F2 max: 0.530159117 
+
+--- RBY: proposed Gauss-Newton gradient versus finite differences ---
+-2 ZE (claimed SSR gradient):
+              [,1]       [,2]
+[1,]  0.0935375729 28.8450467
+[2,] 29.6629656149 58.1451829
+[3,]  6.5210060170 26.5215291
+[4,]  5.4793200237 10.7705985
+Numerical SSR gradient:
+             [,1]        [,2]
+[1,] -6.436845183 16.49356324
+[2,] 24.149636090 64.67556568
+[3,]  0.918185776  9.30560719
+[4,] -3.663452844 16.37341876
+max gradient discrepancy: 17.2159219 
+
+--- NET: lambda argument is ignored ---
+max coefficient difference for lambda=1e-9 versus 1e6: 0 
+largest absolute coefficient: 0.39165004 
+
+--- NET: SUR coefficients have pre-SUR residuals and covariance ---
+max stored versus regression residual difference: 0.885688529 
+max stored versus post-SUR covariance difference: 0.081964253 
+
+--- IHR: stored one-step regression residuals versus fitted model's innovations ---
+maxit 1 max discrepancy: 0.441086199 last residual discrepancy: 0.0353702202 
+maxit 100 max discrepancy: 1.18919114e-05 last residual discrepancy: 3.31454933e-06 
+
+--- IHR: Gaussian likelihood value and parameter count in pure VAR case ---
+reported likelihood: -733.157336 Gaussian likelihood at returned covariance: -730.157336 
+stored npar: 6 logLik df: 9 coefs plus covariance: 9 
+
+--- Boundary orders and single-series input ---
+IHR_univariate_VAR: 'dimnames' applied to non-array
+IHR_univariate_VARMA: subscript out of bounds
+RBY_pure_MA: subscript out of bounds
+DPD_pure_MA: Mat::operator(): indices out of bounds or incorrectly used
+DPF_pure_MA: Mat::operator(): indices out of bounds or incorrectly used
+IHR_pure_MA_control: OK
+
+--- KFAS: sequential errors versus multivariate innovations ---
+covariance of stored sequential errors:
+              Series 1      Series 2
+Series 1  0.9360012643 -0.0035151174
+Series 2 -0.0035151174  1.6691057321
+covariance of joint prediction errors:
+            y1          y2
+y1 0.936001264 0.471027095
+y2 0.471027095 1.907510304
+returned innovation covariance:
+            [,1]        [,2]
+[1,] 0.925418194 0.471131047
+[2,] 0.471131047 1.912578107
+max residual difference: 1.45944919 
+stationary Lyapunov residual for fitted model's P1: 0.0161371984 
+
+--- KFAS and FKF: likelihood metadata and order selection ---
+exact KFAS npar slot exists: FALSE partial-match npar: 7 
+FKF n slot exists: FALSE dollar n: 
+CHECK ERROR: non-numeric argument to mathematical function
+
+--- Generalized IRF: innovation scaling is applied to the wrong dimension ---
+package impact matrix:
+            y1         y2
+y1 1.000000000 0.60000000
+y2 0.424264069 1.41421356
+Sigma times inverse marginal standard deviations:
+     [,1]        [,2]
+[1,]  1.0 0.424264069
+[2,]  0.6 1.414213562
+max difference: 0.175735931 
+
+--- Bootstrap: fitted mean is lost and zero skip still drops an observation ---
+fitted mean: 7.97432795 -4.99170681 
+bootstrap path mean: -0.0639548136 0.0932975736 
+resids_to_skip=0: input rows 239 retained rows 238 
+
+--- Pearlman state-space form: pure VAR versus an equivalent zero-MA representation ---
+same pure VAR but zero MA explicitly present: max R difference: 0.5 
+
+--- Control: raw and Cholesky IRFs agree with direct recursion ---
+raw IRF max difference: 0 
+Cholesky IRF max difference: 0 
+
+--- Session information ---
+R version 4.5.2 (2025-10-31 ucrt)
+Platform: x86_64-w64-mingw32/x64
+Running under: Windows 11 x64 (build 26300)
+
+Matrix products: default
+  LAPACK version 3.12.1
+
+locale:
+[1] C
+system code page: 65001
+
+time zone: Europe/Rome
+tzcode source: internal
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base     
+
+other attached packages:
+[1] Matrix_1.7-4 KFAS_1.6.0  
+
+loaded via a namespace (and not attached):
+ [1] compiler_4.5.2         tools_4.5.2            RcppArmadillo_15.2.6-1 survival_3.8-3        
+ [5] Rcpp_1.1.1-1.1         mathjaxr_2.0-0         splines_4.5.2          codetools_0.2-20      
+ [9] grid_4.5.2             iterators_1.0.14       foreach_1.5.2          FKF.SP_0.3.4          
+[13] shape_1.4.6.1          glmnet_4.1-10          lattice_0.22-7        

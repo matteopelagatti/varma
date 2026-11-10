@@ -11,7 +11,7 @@ fit_varma_rby(
   intercept = TRUE,
   maxit = 500,
   tol = 1e-05,
-  r = max(p + q, round(nrow(Y)/(4 * ncol(Y)))),
+  r = .varma_long_order(as.matrix(Y), p, q, intercept),
   verbose = FALSE
 )
 }
@@ -36,6 +36,8 @@ fit_varma_rby(
 A varma object.
 }
 \description{
-Estimates the parameters of a VARMA(p,q) model by maximizing the
-likelihood iterating GLS step as in Reinsel, Basu and Yap (1992).
+Fits a conditional Gaussian criterion using covariance-weighted Gauss--Newton
+steps and a backtracking line search. The full innovation derivative retains
+cross-equation terms and the order of matrix multiplication. The intercept is
+estimated jointly. The returned convergence code is zero when tolerance is met.
 }

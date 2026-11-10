@@ -4,7 +4,7 @@
 \alias{fit_varma_skf}
 \title{Fit a VARMA(p,q) Model using Sparse Kalman Filter}
 \usage{
-fit_varma_skf(Y, p, q, intercept = TRUE, maxit = 100)
+fit_varma_skf(Y, p = 1, q = 1, intercept = TRUE, maxit = 100, control = list())
 }
 \arguments{
 \item{Y}{a numeric matrix or ts object with d columns (series) and N rows (observations).}
@@ -15,10 +15,9 @@ fit_varma_skf(Y, p, q, intercept = TRUE, maxit = 100)
 
 \item{intercept}{logical: if TRUE (default) a vector of intercepts is computed.}
 
-\item{maxit}{integer, maximum number of iterations for the iterated Hannan-Rissanen
-estimator, which is used for providing starting values for numerical MLE and for
-computing the marginal covariance matrix of the VARMA in state-space form, used
-for initializing the Kalman filter}
+\item{maxit}{maximum iterations of the pilot Hannan--Rissanen estimator.}
+
+\item{control}{list passed to stats::optim; control$maxit controls likelihood iterations.}
 }
 \value{
 A varma object.
@@ -26,4 +25,10 @@ A varma object.
 \description{
 Estimates the parameters of a VARMA(p,q) model by maximizing the
 likelihood computed with an efficient C++/Armadillo-based Kalman filter.
+}
+\details{
+The Gaussian likelihood uses a stationary initial covariance recomputed
+at each candidate. Optimisation is restricted to stable AR and invertible MA
+polynomials. The returned optim.out records numerical convergence; a local optimum
+is not a guarantee of global maximisation. No echelon restrictions are imposed.
 }

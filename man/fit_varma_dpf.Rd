@@ -2,14 +2,14 @@
 % Please edit documentation in R/functions.R
 \name{fit_varma_dpf}
 \alias{fit_varma_dpf}
-\title{Fit a VARMA(p,q) in final MA form using the iterated GLS method}
+\title{Fit a VARMA(p,q) in final MA form using feasible GLS}
 \usage{
 fit_varma_dpf(
   Y,
   p = 1,
   q = 1,
   intercept = TRUE,
-  r = max(p + q, round(nrow(Y)/(4 * ncol(Y)))),
+  r = .varma_long_order(as.matrix(Y), p, q, intercept),
   verbose = FALSE
 )
 }
@@ -30,6 +30,7 @@ fit_varma_dpf(
 A varma object.
 }
 \description{
-Estimates the parameters of a VARMA(p,q) model by maximizing the
-likelihood iterating GLS step as in Dufour and Pelletier (2022).
+Computes a pilot long VAR followed by one feasible GLS regression with diagonal
+or scalar MA restrictions. This implementation is not an iterated likelihood
+maximiser. With an intercept, both stages use centred observations.
 }

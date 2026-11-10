@@ -1,0 +1,196 @@
+
+R version 4.5.2 (2025-10-31 ucrt) -- "[Not] Part in a Rumble"
+Copyright (C) 2025 The R Foundation for Statistical Computing
+Platform: x86_64-w64-mingw32/x64
+
+R is free software and comes with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+Type 'license()' or 'licence()' for distribution details.
+
+R is a collaborative project with many contributors.
+Type 'contributors()' for more information and
+'citation()' on how to cite R or R packages in publications.
+
+Type 'demo()' for some demos, 'help()' for on-line help, or
+'help.start()' for an HTML browser interface to help.
+Type 'q()' to quit R.
+
+> if(identical(Sys.getenv("VARMA_TEST_SOURCE"),"1")) {
++   Rcpp::sourceCpp("src/rcpp_functions.cpp",showOutput=FALSE,
++     cacheDir=file.path(Sys.getenv("TEMP",tempdir()),"varma-regression-source-cache"))
++   for(file in c("estimation_helpers.R","functions.R","covariance.R","echelon.R")) source(file.path("R",file))
++   internal <- function(x) get(x,.GlobalEnv)
++ } else {
++   library(varma)
++   internal <- function(x) get(x,asNamespace("varma"))
++ }
+> close <- function(a,b,tol=1e-7) stopifnot(isTRUE(all.equal(as.numeric(a),as.numeric(b),tolerance=tol)))
+> check <- function(name,expr) {force(expr);cat("PASS:",name,"\n")}
+> fails <- function(expr) stopifnot(inherits(tryCatch({force(expr);NULL},error=identity),"error"))
+> fixture_path <- if(file.exists("fixtures/kronid-reference.rds")) "fixtures/kronid-reference.rds" else "tests/fixtures/kronid-reference.rds"
+> mts_reference <- readRDS(fixture_path)
+> 
+> check("dense Lyapunov methods agree with an independent Kronecker solve",{
++   set.seed(188)
++   for(d in c(1L,3L,8L,18L)) {
++     TT<-matrix(rnorm(d*d,sd=.1),d);TT<-TT/max(1,1.5*max(Mod(eigen(TT)$values)))
++     TT<-TT+diag(.15,d)
++     CC<-crossprod(matrix(rnorm(d*d),d))
++     ref<-matrix(solve(diag(d*d)-kronecker(TT,TT),as.numeric(CC)),d,d)
++     for(method in c("auto","doubling","schur")) {
++       pp<-solve_discrete_lyapunov(TT,CC,method)
++       close(pp,ref,1e-8);close(pp,TT%*%pp%*%t(TT)+CC,1e-9)
++     }
++   }
++   for(root in c(.9999,-.9999)) for(method in c("doubling","schur"))
++     close(solve_discrete_lyapunov(matrix(root),matrix(1),method),1/(1-root^2),1e-8)
++   fails(solve_discrete_lyapunov(diag(c(.5,1.01)),diag(2)))
++   fails(solve_discrete_lyapunov(diag(2)*.4,matrix(1:4,2)))
++ })
+PASS: dense Lyapunov methods agree with an independent Kronecker solve 
+> 
+> check("state covariance propagation agrees with independent vectorisation",{
++   aa<-array(0,c(2,2,2));aa[,,1]<-matrix(c(.3,.1,-.1,.4),2);aa[,,2]<-diag(.1,2)
++   bb<-array(0,c(2,2,2));bb[,,1]<-diag(.2,2);bb[,,2]<-diag(-.1,2)
++   f<-varma(ar=aa,ma=bb,cov=matrix(c(1,.2,.2,2),2))
++   close(autocov_ss(f,10),autocov_vk(f,10))
++   stopifnot(identical(dim(autocov_ss(varma(ar=array(.4,c(1,1,1)),cov=matrix(1)),0)),c(1L,1L,1L)))
++   white<-autocov_ss(varma(cov=diag(2)),4)
++   close(white[,,1],diag(2));stopifnot(all(white[,,-1]==0))
++ })
+PASS: state covariance propagation agrees with independent vectorisation 
+> 
+> check("optimized GLS equals direct time-by-time GLS, including p=0",{
++   set.seed(91);Y<-matrix(rnorm(360),120,3);U<-matrix(rnorm(360),120,3)
++   W<-solve(matrix(c(2,.2,.3,.2,1,.1,.3,.1,1.5),3))
++   for(p in c(0L,2L)) for(type in c("diagonal","final")) {
++     q<-2L;m<-3L;nphi<-m*m*p;k<-nphi+if(type=="diagonal") m*q else q
++     lhs<-matrix(0,k,k);rhs<-numeric(k)
++     for(t in seq.int(max(p,q)+1L,nrow(Y))) {
++       Z<-matrix(0,m,k)
++       for(i in seq_len(m)) {
++         if(p) Z[i,(i-1L)*m*p+seq_len(m*p)]<-as.numeric(t(Y[t-seq_len(p),,drop=FALSE]))
++         ix<-nphi+if(type=="diagonal") (i-1L)*q+seq_len(q) else seq_len(q)
++         Z[i,ix]<-U[t-seq_len(q),i]
++       }
++       lhs<-lhs+t(Z)%*%W%*%Z;rhs<-rhs+as.numeric(t(Z)%*%W%*%Y[t,])
++     }
++     got<-internal("estimate_varma_gls_cpp")(Y,U,W,p,q,type)
++     close(got$A_matrix,lhs);close(got$coefficients,solve(lhs,rhs))
++   }
++ })
+PASS: optimized GLS equals direct time-by-time GLS, including p=0 
+> 
+> check("compiled likelihood candidates preserve higher-order coefficient conventions",{
++   set.seed(781);m<-2L;p<-2L;q<-2L
++   A<-array(rnorm(8,sd=.05),c(m,m,p));A[,,1]<-A[,,1]+diag(.3,m)
++   B<-array(rnorm(8,sd=.05),c(m,m,q));S<-matrix(c(1,.25,.25,2),m)
++   mu<-c(2,-3);ch<-chol(S);diag(ch)<-log(diag(ch))
++   par<-c(mu,as.numeric(aperm(A,c(1,3,2))),as.numeric(aperm(B,c(1,3,2))),ch[upper.tri(ch,TRUE)])
++   z<-internal("varma_candidate_cpp")(par,m,p,q,TRUE)
++   stopifnot(z$valid);close(z$ar,A);close(z$ma,B);close(z$Q,S);close(z$mean,mu)
++   f<-varma(ar=A,ma=B,cov=S,mean=mu);ss<-varma_to_ss(f)
++   close(z$T,ss$T);close(z$R,ss$R)
++   d<-nrow(ss$T);W<-ss$R%*%S%*%t(ss$R)
++   reference_P<-matrix(solve(diag(d*d)-kronecker(ss$T,ss$T),as.numeric(W)),d,d)
++   close(z$P,reference_P)
++   Y<-sim_varma(f,100)
++   # An independent KFAS construction checks the scalar compiled objective.
++   SSMcustom<-KFAS::SSMcustom
++   ref<-KFAS::SSModel(sweep(Y,2,mu,"-")~0+SSMcustom(Z=ss$Z,T=ss$T,R=ss$R,Q=S,
++     P1=reference_P,P1inf=matrix(0,d,d),a1=numeric(d),index=seq_len(m)),H=matrix(0,m,m))
++   close(internal("varma_loglik_cpp")(par,t(Y),p,q,TRUE),as.numeric(logLik(ref)),1e-8)
++   X<-cbind(1,Y[,1],Y[,1])
++   reg<-internal(".varma_regression")(X,Y)
++   close(reg$residuals,Y-X%*%reg$coefficients)
++ })
+PASS: compiled likelihood candidates preserve higher-order coefficient conventions 
+> 
+> check("echelon patterns preserve output order and agree with MTS specification",{
++     # Stored numerical references require no MTS installation.
++     for(fixture in mts_reference$patterns) {
++       indices <- fixture$indices
++       m<-length(indices);q<-max(indices)
++       pat<-internal(".varma_echelon_pattern")(indices,FALSE)
++       ar<-ma<-matrix(0L,m,m*(q+1L));ar[,seq_len(m)]<-ma[,seq_len(m)]<-diag(m)
++       for(j in seq_len(nrow(pat))) {
++         type<-pat[j,1];i<-pat[j,2]+1L;v<-pat[j,3]+1L;lag<-pat[j,4]
++         if(type==1L) {ar[i,v]<-2L;ma[i,v]<-2L}
++         if(type==2L) ar[i,m*lag+v]<-2L
++         if(type==3L) ma[i,m*lag+v]<-2L
++       }
++       spec<-fixture$spec
++       close(ar,spec$PhiID);close(ma,spec$ThetaID)
++     }
++ })
+PASS: echelon patterns preserve output order and agree with MTS specification 
+> 
+> check("echelon analytic gradient includes the lag-zero factor",{
++   set.seed(144);Y<-matrix(rnorm(400),200,2)
++   pattern<-internal(".varma_echelon_pattern")(c(2L,1L),TRUE)
++   par<-runif(nrow(pattern),-.04,.04);par[pattern[,1]==1L]<-.25
++   eval<-function(x,grad=TRUE) internal("echelon_css_cpp")(Y,x,pattern,2L,grad)
++   z<-eval(par);stopifnot(z$valid)
++   numerical<-numeric(length(par));h<-1e-6
++   for(j in seq_along(par)) {
++     up<-down<-par;up[j]<-up[j]+h;down[j]<-down[j]-h
++     numerical[j]<-(eval(up,FALSE)$value-eval(down,FALSE)$value)/(2*h)
++   }
++   close(z$gradient,numerical,1e-6)
++   f<-varma(intercept=as.numeric(z$intercept),ar=z$ar,ma=z$ma)
++   E<-residuals(f,Y=Y)
++   close(z$value,-internal(".varma_gaussian_ll")(E[-(1:2),,drop=FALSE],z$cov))
++ })
+PASS: echelon analytic gradient includes the lag-zero factor 
+> 
+> check("supplied echelon indices, mean, zero indices, forecasts, and bootstrap",{
++   set.seed(299)
++   Phi0<-matrix(c(1,.3,0,1),2)
++   A<-solve(Phi0,matrix(c(.5,0,0,0),2))
++   B<-solve(Phi0,matrix(c(.2,0,.15,0),2))
++   truth<-varma(ar=array(A,c(2,2,1)),ma=array(B,c(2,2,1)),mean=c(2,-1),cov=diag(2))
++   Y<-sim_varma(truth,600)
++   f<-fit_varma_echelon(Y,c(1,0),control=list(maxit=500,reltol=1e-9))
++   stopifnot(identical(as.integer(f$kronecker_indices),c(1L,0L)),!f$indices_estimated,
++             f$convergence==0L,all(is_stable(f)),f$npar==length(f$coefficients)+3)
++   for(lag in seq_len(dim(f$ar)[3])) {
++     close(f$echelon$Phi0%*%f$ar[,,lag],f$echelon$ar[,,lag])
++     close(f$echelon$Phi0%*%f$ma[,,lag],f$echelon$ma[,,lag])
++   }
++   close(f$echelon$Phi0%*%f$intercept,f$echelon$intercept)
++   close(f$residuals,residuals(f));close(f$optim.out$value,-as.numeric(logLik(f)))
++   stopifnot(identical(dim(predict(f,3)$cov),c(2L,2L,3L)))
++   stopifnot(irf_distance(irf(f,5),irf(truth,5))<.2)
++   white<-fit_varma_echelon(Y,c(0,0))
++   close(white$intercept,colMeans(Y));close(predict(white,2,cov=FALSE),matrix(rep(colMeans(Y),each=2),2))
++   no_mean<-fit_varma_echelon(Y,c(0,0),intercept=FALSE)
++   close(no_mean$cov,crossprod(Y)/nrow(Y))
++   uni<-fit_varma_echelon(Y[,1,drop=FALSE],1L,control=list(maxit=500))
++   stopifnot(identical(dim(predict(uni,1)$cov),c(1L,1L,1L)))
++   boots<-bootstrap_varma(white,nsim=2)
++   stopifnot(all(vapply(boots,function(x) identical(x$kronecker_indices,white$kronecker_indices),logical(1))))
++   fails(fit_varma_echelon(Y,c(1,.5)));fails(fit_varma_echelon(Y,1L))
++ })
+PASS: supplied echelon indices, mean, zero indices, forecasts, and bootstrap 
+> 
+> check("automatic echelon indices reproduce data-based canonical-correlation selection",{
++     reference<-mts_reference$cases$white2;Y<-reference$Y
++     fit<-fit_varma_echelon(Y,plag=reference$plag,crit=reference$crit)
++     stopifnot(fit$indices_estimated,identical(as.integer(fit$kronecker_indices),as.integer(reference$index)),
++               identical(fit$selection$method,"varma::select_kronecker_indices"))
++     refit<-bootstrap_varma(fit,nsim=1,kidx=NULL)[[1]]
++     stopifnot(refit$indices_estimated)
++     set.seed(332)
++     truth<-varma(ar=array(diag(c(.65,.5)),c(2,2,1)),
++                   ma=array(diag(c(.2,.1)),c(2,2,1)),cov=diag(2))
++     dynamic<-fit_varma_echelon(sim_varma(truth,1000),control=list(maxit=500))
++     stopifnot(dynamic$convergence==0L,all(dynamic$kronecker_indices>0L),
++               irf_distance(irf(truth,5),irf(dynamic,5))<.15)
++ })
+PASS: automatic echelon indices reproduce data-based canonical-correlation selection 
+> cat("All echelon and performance-correctness checks passed.\n")
+All echelon and performance-correctness checks passed.
+> 
+> proc.time()
+   user  system elapsed 
+   0.42    0.07    0.50 

@@ -167,21 +167,79 @@ arma::mat sim_varma_rcpp(const arma::cube& A,
 //' @param tol small positive number with the tolerance for convergence.
 //' @return The solution matrix P
 // [[Rcpp::depends(RcppArmadillo)]]
-// [[Rcpp::export]]
-arma::mat solve_dlyap_iter(const arma::sp_mat& T, const arma::mat& C, int max_iter = 200, double tol = 1e-10) {
+static arma::mat dlyap_doubling(const arma::mat& T, const arma::mat& C, int max_iter, double tol) {
+   if (T.n_rows != T.n_cols || C.n_rows != T.n_rows || C.n_cols != T.n_cols)
+     Rcpp::stop("Incompatible Lyapunov matrix dimensions");
+   if (max_iter < 1 || tol <= 0) Rcpp::stop("Invalid Lyapunov convergence controls");
+   // Doubling sums 1, 2, 4, ... terms of the covariance series. This also
+   // converges rapidly for stationary roots close to one.
    arma::mat P = C;
-   arma::mat P_old;
+   arma::mat power(T);
    for (int i = 0; i < max_iter; ++i) {
-     P_old = P;
-     P = T * P_old * T.t() + C;
-     if (arma::approx_equal(P, P_old, "absdiff", tol)) {
-       return P;
-     }
+     arma::mat addition = power * P * power.t();
+     if (!addition.is_finite()) Rcpp::stop("No finite stationary state covariance");
+     P += addition;
+     if (arma::norm(addition, "inf") <= tol * (1.0 + arma::norm(P, "inf")))
+       return (P + P.t()) * 0.5;
+     power = power * power;
    }
-   // Return the last iteration if not converged, with a warning.
-   Rcpp::warning("Lyapunov equation solver did not converge within %d iterations.", max_iter);
-   return P;
+   Rcpp::stop("Stationary covariance calculation did not converge");
 }
+
+
+static bool stable_matrix(const arma::mat& T) {
+  if (!T.is_finite()) return false;
+  if (T.n_rows == 0) return true;
+  arma::cx_vec roots;
+  return arma::eig_gen(roots,T) && arma::all(arma::abs(roots)<1.0);
+}
+
+static arma::mat dlyap_dense(const arma::mat& T, const arma::mat& C,
+                            int max_iter, double tol, const std::string& method) {
+  const bool schur = method=="schur" || (method=="auto" && T.n_rows>=16);
+  if (schur) {
+    // Bilinear transformation to G P + P G' + D = 0, solved by Schur methods.
+    arma::mat invplus, P;
+    const arma::mat I=arma::eye<arma::mat>(T.n_rows,T.n_cols);
+    if (arma::solve(invplus,T+I,I,arma::solve_opts::no_approx)) {
+      arma::mat G=(T-I)*invplus;
+      arma::mat D=2*invplus*C*invplus.t();
+#if ARMA_VERSION_MAJOR >= 15
+      const bool solved=arma::sylvester(P,G,G.t(),D);
+#else
+      const bool solved=arma::syl(P,G,G.t(),D);
+#endif
+      if (solved && P.is_finite()) {
+        P=(P+P.t())*.5;
+        double err=arma::norm(P-T*P*T.t()-C,"inf");
+        if (err<=100*tol*(1+arma::norm(C,"inf")+arma::norm(P,"inf"))) return P;
+      }
+    }
+    if (method=="schur") Rcpp::stop("Schur Lyapunov solve failed its residual check; use doubling");
+  }
+  return dlyap_doubling(T,C,max_iter,tol);
+}
+
+// [[Rcpp::export]]
+arma::mat solve_dlyap_iter(const arma::sp_mat& T, const arma::mat& C,
+                          int max_iter=200, double tol=1e-10) {
+  return dlyap_doubling(arma::mat(T),C,max_iter,tol);
+}
+
+// [[Rcpp::export]]
+arma::mat solve_dlyap_dense_cpp(const arma::mat& T, const arma::mat& C,
+                              int max_iter=200, double tol=1e-10,
+                              std::string method="auto") {
+  if (!T.n_rows || T.n_rows!=T.n_cols || C.n_rows!=T.n_rows || C.n_cols!=T.n_cols)
+    Rcpp::stop("Incompatible Lyapunov matrix dimensions");
+  if (max_iter<1 || !std::isfinite(tol) || tol<=0 || !C.is_finite())
+    Rcpp::stop("Invalid covariance or Lyapunov convergence controls");
+  if (method!="auto" && method!="doubling" && method!="schur") Rcpp::stop("Unknown Lyapunov method");
+  if (arma::norm(C-C.t(),"inf")>1e-10*(1+arma::norm(C,"inf"))) Rcpp::stop("C must be symmetric");
+  if (!stable_matrix(T)) Rcpp::stop("T must have all eigenvalues strictly inside the unit circle");
+  return dlyap_dense(T,C,max_iter,tol,method);
+}
+
 
 //' Compute the log-likelihood of a VARMA model in state-space form
 //'
@@ -190,13 +248,10 @@ arma::mat solve_dlyap_iter(const arma::sp_mat& T, const arma::mat& C, int max_it
 //' The observation matrix \eqn{Z = [I_m \; 0]} is implicit: the first \eqn{m}
 //' elements of the state vector are the observations.
 //'
-//' \strong{Steady-state acceleration.}  Once the innovation variance matrix
-//' \eqn{F_t = Z P_t Z'} has converged (relative Frobenius change \code{< ss_tol}
-//' over one step), the function enters a \emph{steady-state fast path}: the
-//' \eqn{O(d^2)} covariance update is skipped and only the \eqn{O(\mathrm{nnz}(T))}
-//' state-mean update is performed.  The fast path is exited automatically
-//' whenever a time point with missing observations is encountered, since
-//' \eqn{P_t} then changes and convergence must be re-established.
+//' \strong{Steady-state acceleration.} Covariance updates are skipped only when
+//' the entire predicted state covariance has converged in relative Frobenius norm.
+//' Checking only the observed block can falsely detect convergence in delayed MA
+//' models. Missing observations disable acceleration until convergence is restored.
 //'
 //' @param T sparse state-transition matrix (\eqn{d \times d}).
 //'   Use \code{Matrix::Matrix(M, sparse = TRUE)} to convert from dense.
@@ -210,9 +265,8 @@ arma::mat solve_dlyap_iter(const arma::sp_mat& T, const arma::mat& C, int max_it
 //' @param update_state if \code{TRUE}, \code{a1} and \code{P1} are overwritten
 //'   with the one-step-ahead predicted state at \eqn{t = n+1} (default
 //'   \code{FALSE}).
-//' @param ss_tol relative convergence tolerance for steady-state detection:
-//'   \eqn{\|F_t - F_{t-1}\|_F / \max(\|F_{t-1}\|_F, 1) < \texttt{ss\_tol}}
-//'   (default \code{1e-8}).
+//' @param ss_tol relative tolerance for the full state covariance (default 1e-8).
+//'   Zero disables steady-state acceleration.
 //'
 //' @return Scalar log-likelihood value.
 // [[Rcpp::depends(RcppArmadillo)]]
@@ -263,11 +317,9 @@ double kalmanLogLik(const arma::sp_mat& T,
   // counter so that re-convergence is detected afresh.
   // ------------------------------------------------------------------
   bool      ss_reached    = false;   // are we in steady-state fast path?
-  bool      F_initialized = false;   // have we seen at least one full-obs step?
   arma::mat P_ss;                    // P frozen at steady state
   arma::mat K_ss;                    // Kalman gain at steady state
   arma::mat iF_ss;                   // F^{-1} at steady state
-  arma::mat F_prev;                  // F from the previous full-obs step
   double    logdet_F_ss = 0.0;       // log|F_ss| (constant in fast path)
 
   for (arma::uword t = 0; t < n; ++t) {
@@ -292,7 +344,6 @@ double kalmanLogLik(const arma::sp_mat& T,
     if (ss_reached) {
       Pt            = P_ss;
       ss_reached    = false;
-      F_initialized = false;   // force a fresh convergence run
     }
 
     // ----------------------------------------------------------------
@@ -311,30 +362,22 @@ double kalmanLogLik(const arma::sp_mat& T,
       TPZt = T * PZt;
       K    = TPZt * iF;
       at   = T * at + K * v;
-      Pt   = T * Pt * Tt - K * F * K.t() + RQRt;
-
-      // --- Steady-state convergence check ---
-      // Declare SS when the relative change in F is below ss_tol.
-      // We need at least two consecutive full-obs steps to compare.
-      if (F_initialized) {
-        const double dF = arma::norm(F - F_prev, "fro");
-        const double nF = std::max(arma::norm(F_prev, "fro"), 1.0);
-        if (dF < ss_tol * nF) {
-          ss_reached  = true;
-          P_ss        = Pt;                                       // freeze P
-          K_ss        = K;
-          iF_ss       = iF;
-          logdet_F_ss = arma::as_scalar(arma::log_det_sympd(F)); // scalar cache
-        }
+      arma::mat P_before = Pt;
+      Pt = T * Pt * Tt - K * F * K.t() + RQRt;
+      Pt = (Pt + Pt.t()) * 0.5;
+      // F alone may be unchanged for several steps in a seasonal MA model
+      // although the unobserved-state covariance and gain have not converged.
+      if (ss_tol > 0 && arma::norm(Pt-P_before,"fro") <
+          ss_tol * std::max(arma::norm(P_before,"fro"),1.0)) {
+        ss_reached = true;
+        P_ss = Pt; K_ss = K; iF_ss = iF;
+        logdet_F_ss = arma::as_scalar(arma::log_det_sympd(F));
       }
-      F_prev        = F;
-      F_initialized = true;
 
     } else if (notna.is_empty()) {
       // All observations missing ------------------------------------ //
       at            = T * at;
       Pt            = T * Pt * Tt + RQRt;
-      F_initialized = false;   // P changed; wait for re-convergence
 
     } else {
       // Partial missing --------------------------------------------- //
@@ -355,7 +398,6 @@ double kalmanLogLik(const arma::sp_mat& T,
       arma::mat K_obs = TPZt * iF_obs;
       at             = T * at + K_obs * v_t;
       Pt             = T * Pt * Tt - K_obs * F_obs * K_obs.t() + RQRt;
-      F_initialized  = false;   // P changed; wait for re-convergence
     }
   }
 
@@ -445,8 +487,8 @@ double kalman(const arma::sp_mat& T,
        v(notna(k), t) = v_t(k);
      PZt = Pt.slice(t).cols(notna);
      arma::mat F_obs = Pt.slice(t)(notna, notna);
-     F.slice(t).zeros();
-     F.slice(t).submat(0, 0, notna.n_elem-1, notna.n_elem-1) = F_obs;
+     F.slice(t).fill(datum::nan);
+     F.slice(t)(notna, notna) = F_obs;
      arma::mat iF_obs(notna.n_elem, notna.n_elem);
      pass = inv_sympd(iF_obs, F_obs);
      if (!pass) return -datum::inf;
@@ -507,8 +549,10 @@ arma::vec sur_cpp(const Rcpp::List& X_list,
 
   int row_start_idx = 0;
   for (int i = 0; i < M; ++i) {
+    if (ks[i] == 0) continue;
     int col_start_idx = 0;
     for (int j = 0; j < M; ++j) {
+      if (ks[j] == 0) continue;
 
       // 3. Get the scalar weight from the inverted covariance matrix
       double sigma_ij_inv = sigma_inv(i, j);
@@ -643,71 +687,41 @@ arma::rowvec get_var_regressors(const arma::mat& Y, int t, int p, int K) {
 // [[Rcpp::export]]
 List estimate_varma_gls_cpp(arma::mat Y, arma::mat U, arma::mat SigmaU_inv,
                             int p, int q, String type) {
-  int T = Y.n_rows;
-  int K = Y.n_cols;
-  int t_start = std::max(p, q);
-
-  // phi and theta parameters dimensions
-  int n_params_phi = K * K * p; // VAR parameters
-  int n_params_theta = 0;       // VMA parameters if no VMA present
-
-  if (type == "diagonal") {
-    n_params_theta = K * q; // q parameters per equation (tot -> K*q)
-  } else if (type == "final") {
-    n_params_theta = q;     // q parameters common to all equations
+  const int T=Y.n_rows,K=Y.n_cols,start=std::max(p,q),kp=K*p,nphi=K*K*p;
+  const bool diagonal=type=="diagonal";
+  if(p<0 || q<0 || T<=start || (type!="diagonal" && type!="final"))
+    Rcpp::stop("Invalid GLS orders, sample length, or MA type");
+  const int nt=T-start,ntheta=diagonal ? K*q : q,npar=nphi+ntheta;
+  arma::mat X(nt,kp),yy=Y.rows(start,T-1);
+  for(int lag=1;lag<=p;++lag) X.cols((lag-1)*K,lag*K-1)=Y.rows(start-lag,T-lag-1);
+  std::vector<arma::mat> Z(K);
+  for(int i=0;i<K;++i) {
+    Z[i].set_size(nt,q);
+    for(int lag=1;lag<=q;++lag) Z[i].col(lag-1)=U.col(i).rows(start-lag,T-lag-1);
   }
-
-  int n_total_params = n_params_phi + n_params_theta;
-
-  // Matrices for the linear system A * gamma = b
-  arma::mat A(n_total_params, n_total_params, fill::zeros);
-  arma::vec b(n_total_params, fill::zeros);
-
-  // for loop on the time t
-  for (int t = t_start; t < T; t++) {
-
-    // Making the matrix Z_t (dimensions K x n_total_params)
-    arma::mat Z_t(K, n_total_params, fill::zeros);
-
-    // Vector of VAR regressors (equal for all equations but in different positions)
-    arma::rowvec var_regs = get_var_regressors(Y, t, p, K); // Dim K*p
-
-    for (int k = 0; k < K; k++) {
-      // 1. Insert VAR regressors in the right block
-      // The Phi parameters are ordere as [Phi_row1, Phi_row2, ...]
-      int start_col_phi = k * (K * p);
-      Z_t(k, span(start_col_phi, start_col_phi + (K * p) - 1)) = var_regs;
-
-      // 2. Insert the VMA regressors in the right block
-      if (type == "diagonal") {
-        // Each equation has its own theta parameters
-        // Order: [Theta_eq1, Theta_eq2, ...] after the Phi's
-        int start_col_theta = n_params_phi + k * q;
-        Z_t(k, span(start_col_theta, start_col_theta + q - 1)) =
-          get_ma_regressors(U, t, q, k);
-      } else if (type == "final") {
-        // The common theta parameters are at the end
-        // Order: [Theta_common] after the Phi's
-        int start_col_theta = n_params_phi;
-        // Note: for the Final MA, the regressor is the innovation of equation k
-        // but the coefficient is common to all equations.
-        Z_t(k, span(start_col_theta, start_col_theta + q - 1)) =
-          get_ma_regressors(U, t, q, k);
+  // Reuse sufficient cross-products instead of allocating a mostly-zero Z_t
+  // and multiplying a full npar x npar matrix at every observation.
+  arma::mat A(npar,npar,fill::zeros);
+  arma::vec b(npar,fill::zeros);
+  arma::mat XX=X.t()*X,weighted=yy*SigmaU_inv.t();
+  for(int i=0;i<K;++i) {
+    if(p) b.subvec(i*kp,(i+1)*kp-1)=X.t()*weighted.col(i);
+    const int ti=nphi+(diagonal ? i*q : 0);
+    if(q) b.subvec(ti,ti+q-1)+=Z[i].t()*weighted.col(i);
+    for(int j=0;j<K;++j) {
+      const double w=SigmaU_inv(i,j);
+      if(p) A.submat(i*kp,j*kp,(i+1)*kp-1,(j+1)*kp-1)=w*XX;
+      const int tj=nphi+(diagonal ? j*q : 0);
+      if(p && q) {
+        arma::mat block=w*(X.t()*Z[j]);
+        A.submat(i*kp,tj,(i+1)*kp-1,tj+q-1)+=block;
+        A.submat(tj,i*kp,tj+q-1,(i+1)*kp-1)+=block.t();
       }
+      if(q) A.submat(ti,tj,ti+q-1,tj+q-1)+=w*(Z[i].t()*Z[j]);
     }
-
-    // Cumulate GLS: A += Z_t.t() * SigmaU_inv * Z_t
-    // Cumulate b:   b += Z_t.t() * SigmaU_inv * y_t
-    arma::mat W = Z_t.t() * SigmaU_inv;
-    A += W * Z_t;
-    b += W * Y.row(t).t();
   }
-
-  // Least squares solution
-  arma::vec gamma_hat = solve(A, b);
-
-  return List::create(Named("coefficients") = gamma_hat,
-                      Named("A_matrix") = A); // Approx inverse Fisher information
+  arma::vec coefficients=arma::solve(A,b);
+  return List::create(Named("coefficients")=coefficients,Named("A_matrix")=A);
 }
 
 
@@ -1380,86 +1394,59 @@ mat filter_series_inverse(const arma::mat& Input, const arma::cube& Theta_cube,
   return X;
 }
 
-// Gauss-Newton one-step optimization for VARMA(p, 1)
+// Covariance-weighted Gauss-Newton system for VARMA(p, q).
 //   Y_t = [c] + Phi_1 Y_{t-1} + ... + Phi_p Y_{t-p} + E_t + Theta_1 E_{t-1} + ... + Theta_q E_{t-q}
 //
 // Phi_cube  : cube K x K x p (slice i-1 = Phi_i)
 // Theta_cube: cube K x K x q (slice j-1 = Theta_j)
 // intercept : if true, c_vec (K x 1) is subtracted when computing the resid
-//             and we add a scalar regressor, 1, at the end of z_t
+//             and its derivative is filtered along with the dynamic derivatives.
 //
-// Layout rows of ZZ/ZE (and of Delta = ZZ^{-1} ZE in R):
-//   [K*p rows for Phi | K*q rows for Theta | 1 row for c (if intercept=true)]
+// Parameter order is equation-major. Within each equation:
+//   [K*p Phi coefficients | K*q Theta coefficients | c, if included].
+// ZZ is npar x npar and ZE is an npar-vector; R reshapes the solved step.
 // [[Rcpp::export]]
 List rby_optimization_step(arma::mat Y, arma::cube Phi_cube, arma::cube Theta_cube,
                            int p, int q, bool intercept, arma::vec c_vec) {
-  int T = Y.n_rows;
-  int K = Y.n_cols;
-  int t_start = std::max(p, q);
-  int n_reg = K * p + K * q + (intercept ? 1 : 0);
-
-  // 1. Compute resid E_t: E_t = Y_t - [c] - sum Phi_i Y_{t-i} - sum Theta_j E_{t-j}
-  arma::mat E(T, K, fill::zeros);
-
-  for (int t = t_start; t < T; t++) {
-    arma::vec e_t = Y.row(t).t();
-
-    if (intercept) {
-      e_t -= c_vec;
-    }
-    for (int i = 1; i <= p; i++) {
-      e_t -= Phi_cube.slice(i - 1) * Y.row(t - i).t();
-    }
-    for (int j = 1; j <= q; j++) {
-      e_t -= Theta_cube.slice(j - 1) * E.row(t - j).t();
-    }
-    E.row(t) = e_t.t();
+  const int T = Y.n_rows, K = Y.n_cols;
+  const int start = std::max(p,q);
+  const int width = K*(p+q)+(intercept ? 1 : 0);
+  const int npar = K*width;
+  if (T <= start || p < 0 || q < 0) Rcpp::stop("Invalid orders or sample length");
+  arma::vec cc = intercept ? c_vec : arma::vec();
+  arma::mat E = varma_residuals(Y,Phi_cube,Theta_cube,cc);
+  arma::mat used = E.rows(start,T-1);
+  arma::mat Sigma = used.t()*used/(T-start);
+  arma::mat W;
+  if (!arma::inv_sympd(W,Sigma)) Rcpp::stop("Residual covariance is not positive definite");
+  arma::mat ZZ(npar,npar,fill::zeros);
+  arma::vec ZE(npar,fill::zeros);
+  arma::cube history(K,npar,q+1,fill::zeros);
+  // D_t = -d e_t/d beta'. Multiplication order matters:
+  // D_t = direct_t - sum_j Theta_j D_{t-j}.
+  // beta stacks the regression coefficients equation by equation.
+  for (int t=start; t<T; ++t) {
+    arma::rowvec direct(width,fill::zeros);
+    for (int i=1; i<=p; ++i) direct.cols((i-1)*K,i*K-1)=Y.row(t-i);
+    for (int j=1; j<=q; ++j) direct.cols(K*p+(j-1)*K,K*p+j*K-1)=E.row(t-j);
+    if (intercept) direct(width-1)=1.0;
+    arma::mat D(K,npar,fill::zeros);
+    for (int k=0; k<K; ++k) D(k,span(k*width,(k+1)*width-1))=direct;
+    for (int j=1; j<=q; ++j)
+      if (t-j >= start) D -= Theta_cube.slice(j-1)*history.slice((t-j)%(q+1));
+    history.slice(t%(q+1))=D;
+    ZZ += D.t()*W*D;
+    ZE += D.t()*W*E.row(t).t();
   }
-
-  // 2. Aux series filtered by Theta(L)^{-1}
-  //    U_aux: filtered Y -> regressors for the AR part
-  //    V_aux: filtered E -> regressors for the MA part
-  mat U_aux = filter_series_inverse(Y, Theta_cube, q, K);
-  mat V_aux = filter_series_inverse(E, Theta_cube, q, K);
-
-  // 3. Build the Gauss-Newton matrices ZZ e ZE
-  //    z_t = [U_{t-1}',...,U_{t-p}', V_{t-1}',...,V_{t-q}', 1 (scalar) if intercept]
-  arma::mat ZZ(n_reg, n_reg, fill::zeros);
-  arma::mat ZE(n_reg, K,     fill::zeros);
-
-  for (int t = t_start; t < T; t++) {
-    rowvec z_t(n_reg);
-    int idx = 0;
-
-    for (int i = 1; i <= p; i++) {
-      z_t.subvec(idx, idx + K - 1) = U_aux.row(t - i);
-      idx += K;
-    }
-    for (int j = 1; j <= q; j++) {
-      z_t.subvec(idx, idx + K - 1) = V_aux.row(t - j);
-      idx += K;
-    }
-    if (intercept) {
-      z_t[idx] = 1.0;
-    }
-
-    ZZ += z_t.t() * z_t;
-    ZE += z_t.t() * E.row(t);
-  }
-
-  return List::create(Named("ZZ") = ZZ, Named("ZE") = ZE, Named("E") = E);
+  return List::create(Named("ZZ")=ZZ,Named("ZE")=ZE,Named("E")=E,Named("Sigma")=Sigma);
 }
 
 
 //' Kronecker indices for the VARMA echelon form
 //'
-//' Determines the Kronecker indices from the VARMA transfer function
-//' \eqn{\Phi(z)^{-1}\Theta(z)} via the rank profile of the block Hankel
-//' matrix of impulse-response coefficients.  The identity
-//' \eqn{\mathrm{rank}(H_s) = \sum_k \min(\kappa_k, s)} implies
-//' \eqn{\Delta_s = \mathrm{rank}(H_s) - \mathrm{rank}(H_{s-1}) = \#\{k : \kappa_k \ge s\}},
-//' so the Kronecker indices are the conjugate partition of
-//' \eqn{(\Delta_1, \Delta_2, \ldots)}.
+//' Determines output-ordered Kronecker indices from the first dependent row of
+//' a sufficiently wide block Hankel matrix of transfer coefficients. Series order
+//' is preserved for use in echelon estimation. Numerical ranks depend on tol.
 //'
 //' @param Phi   \eqn{m \times m \times p} cube of VAR coefficients.
 //'              Pass a zero-slice cube (\code{array(0, c(m, m, 0))}) when
@@ -1468,67 +1455,324 @@ List rby_optimization_step(arma::mat Y, arma::cube Phi_cube, arma::cube Theta_cu
 //'              Pass a zero-slice cube when \code{q = 0}.
 //' @param tol   Relative singular-value threshold for numerical rank
 //'              (default \code{1e-8}).
-//' @return Integer vector of length \code{m} with Kronecker indices sorted
-//'         in non-increasing order.
+//' @return Integer vector of length \code{m} with Kronecker indices
+//'         in output-series order (not sorted).
 // [[Rcpp::export]]
 Rcpp::IntegerVector kronecker_indices_cpp(const arma::cube& Phi,
                                           const arma::cube& Theta,
-                                          const double      tol = 1e-8) {
-   const int p     = static_cast<int>(Phi.n_slices);
-   const int q     = static_cast<int>(Theta.n_slices);
-   const int m = (Phi.n_slices > 0) ? static_cast<int>(Phi.n_rows) : static_cast<int>(Theta.n_rows);
-   const int K     = 2 * (p + q + m) + 2;  // enough for rank to stabilise
-   const int max_s = K / 2;
+                                          const double tol = 1e-8) {
+  const int p=Phi.n_slices, q=Theta.n_slices;
+  const int m=p ? Phi.n_rows : Theta.n_rows;
+  if (tol<=0) Rcpp::stop("tol must be positive");
+  // A Harvey realisation bounds the state dimension. Use a fixed, sufficiently
+  // wide Hankel matrix: equal ranks of two SQUARE Hankel matrices do not imply
+  // saturation (a delayed response is a simple counterexample).
+  const int d=m*std::max(p,q+1);
+  arma::cube C=irf_varma_rcpp(Phi,Theta,arma::eye<arma::mat>(m,m),2*d+1);
+  arma::mat basis(0,m*(d+1));
+  Rcpp::IntegerVector indices(m,0);
+  std::vector<bool> done(m,false);
+  // Keep the output-series ordering used by echelon estimation. A row's index
+  // is the first block row at which its shifted Hankel row is dependent on
+  // the preceding independent rows (lexicographic block/series order).
+  for (int h=0; h<=d; ++h) {
+    for (int i=0; i<m; ++i) {
+      if (done[i]) continue;
+      arma::rowvec row(m*(d+1));
+      for (int j=0; j<=d; ++j) row.cols(j*m,(j+1)*m-1)=C.slice(h+j+1).row(i);
+      arma::mat candidate=arma::join_cols(basis,row);
+      arma::vec sv; arma::svd(sv,candidate);
+      int rank=(sv.n_elem && sv(0)>0) ? arma::sum(sv>tol*sv(0)) : 0;
+      if (rank>static_cast<int>(basis.n_rows)) basis=std::move(candidate);
+      else { indices[i]=h; done[i]=true; }
+    }
+  }
+  return indices;
+}
 
-   // ---------------------------------------------------------------
-   // Step 1 — impulse responses  C[0] = I,  C[j] = C_j  (j = 1..K)
-   //   C_j = Theta_j - Phi_1 C_{j-1} - ... - Phi_p C_{j-p}
-   //   with Theta_j = 0 for j > q
-   // ---------------------------------------------------------------
-   std::vector<arma::mat> C(K + 1);
-   C[0] = arma::eye<arma::mat>(m, m);
-   for (int j = 1; j <= K; ++j) {
-     arma::mat Cj = (j <= q) ? arma::mat(Theta.slice(j - 1))
-       : arma::mat(m, m, arma::fill::zeros);
-     for (int i = 1; i <= std::min(j, p); ++i)
-       Cj += Phi.slice(i - 1) * C[j - i];
-     C[j] = std::move(Cj);
-   }
+struct VarmaCandidate {
+  arma::mat T,R,Q,P,W;
+  arma::vec mean;
+  arma::cube ar,ma;
+};
 
-   // ---------------------------------------------------------------
-   // Step 2 — block Hankel matrices  H_s,  block(i,j) = C_{i+j-1}
-   //   Compute numerical rank via SVD; stop when rank stabilises.
-   // ---------------------------------------------------------------
-   std::vector<int> ranks(max_s + 1, 0);  // ranks[0] = rank(H_0) = 0
-   int s_stop = 0;
+static bool build_varma_candidate(const arma::vec& pars,int m,int p,int q,
+                                 bool intercept,VarmaCandidate& z) {
+  const int d=m*std::max(p,q+1);
+  if (m<1 || p<0 || q<0 || !pars.is_finite() ||
+      pars.n_elem != static_cast<arma::uword>(m*(intercept?1:0)+m*m*(p+q)+m*(m+1)/2)) return false;
+  int pos=0;
+  z.mean.zeros(m);
+  if (intercept) {z.mean=pars.head(m);pos=m;}
+  z.T.zeros(d,d);z.R.zeros(d,m);z.R.rows(0,m-1)=arma::eye<arma::mat>(m,m);
+  if (d>m) z.T.submat(0,m,d-m-1,d-1)=arma::eye<arma::mat>(d-m,d-m);
+  z.ar.zeros(m,m,p);z.ma.zeros(m,m,q);
+  if (p) {
+    z.T.submat(0,0,m*p-1,m-1)=arma::reshape(pars.subvec(pos,pos+m*m*p-1),m*p,m);
+    pos+=m*m*p;
+    if (!stable_matrix(z.T.submat(0,0,m*p-1,m*p-1))) return false;
+    for(int i=0;i<p;++i) z.ar.slice(i)=z.T.submat(i*m,0,(i+1)*m-1,m-1);
+  }
+  if (q) {
+    arma::mat coeff=arma::reshape(pars.subvec(pos,pos+m*m*q-1),m*q,m);
+    pos+=m*m*q;z.R.rows(m,m*(q+1)-1)=coeff;
+    arma::mat comp(m*q,m*q,arma::fill::zeros);
+    comp.cols(0,m-1)=-coeff;
+    if(q>1) comp.submat(0,m,m*(q-1)-1,m*q-1)=arma::eye<arma::mat>(m*(q-1),m*(q-1));
+    if(!stable_matrix(comp)) return false;
+    for(int j=0;j<q;++j) z.ma.slice(j)=coeff.rows(j*m,(j+1)*m-1);
+  }
+  arma::mat ch(m,m,arma::fill::zeros);
+  for(int j=0;j<m;++j) for(int i=0;i<=j;++i) ch(i,j)=pars(pos++);
+  ch.diag()=arma::exp(ch.diag());
+  if(!ch.is_finite() || arma::any(ch.diag()<1e-10)) return false;
+  z.Q=ch.t()*ch;z.W=z.R*z.Q*z.R.t();
+  if(!z.Q.is_finite() || !z.W.is_finite()) return false;
+  z.P=dlyap_dense(z.T,z.W,200,1e-10,"auto");
+  return z.P.is_finite();
+}
 
-   for (int s = 1; s <= max_s; ++s) {
-     const int sm = s * m;
-     arma::mat H(sm, sm, arma::fill::zeros);
-     for (int i = 1; i <= s; ++i)
-       for (int j = 1; j <= s; ++j)
-         H.submat((i-1)*m, (j-1)*m, i*m-1, j*m-1) = C[i + j - 1];
+// [[Rcpp::export]]
+Rcpp::List varma_candidate_cpp(const arma::vec& pars,int m,int p,int q,bool intercept) {
+  VarmaCandidate z;
+  if(!build_varma_candidate(pars,m,p,q,intercept,z)) return Rcpp::List::create(Rcpp::Named("valid")=false);
+  return Rcpp::List::create(Rcpp::Named("valid")=true,Rcpp::Named("T")=z.T,
+    Rcpp::Named("R")=z.R,Rcpp::Named("Q")=z.Q,Rcpp::Named("P")=z.P,
+    Rcpp::Named("W")=z.W,Rcpp::Named("mean")=z.mean,
+    Rcpp::Named("ar")=z.ar,Rcpp::Named("ma")=z.ma);
+}
 
-     arma::vec sv;
-     arma::svd(sv, H);   // singular values only, descending order
-     ranks[s] = (sv(0) > std::numeric_limits<double>::epsilon())
-       ? static_cast<int>(arma::sum(sv > tol * sv(0)))
-       : 0;
-     s_stop = s;
-     if (s > 1 && ranks[s] == ranks[s - 1]) break;  // McMillan degree reached
-   }
+// [[Rcpp::export]]
+double varma_loglik_cpp(const arma::vec& pars,const arma::mat& Yt,
+                       int p,int q,bool intercept) {
+  VarmaCandidate z;
+  if(!build_varma_candidate(pars,Yt.n_rows,p,q,intercept,z)) return -arma::datum::inf;
+  arma::mat y=Yt;
+  if(intercept) y.each_col()-=z.mean;
+  arma::mat a(z.T.n_rows,1,arma::fill::zeros);
+  return kalmanLogLik(arma::sp_mat(z.T),arma::sp_mat(z.R),z.Q,a,z.P,y);
+}
 
-   // ---------------------------------------------------------------
-   // Steps 3-4 — conjugate partition
-   //   delta_s = ranks[s] - ranks[s-1] = #{k : kappa_k >= s}
-   //   so each delta_s contributes +1 to kappa_1, ..., kappa_{delta_s}
-   // ---------------------------------------------------------------
-   Rcpp::IntegerVector kappa(m, 0);
-   for (int s = 1; s <= s_stop; ++s) {
-     const int delta = ranks[s] - ranks[s - 1];
-     for (int k = 0; k < delta && k < m; ++k)
-       kappa[k]++;
-   }
-   std::sort(kappa.begin(), kappa.end(), std::greater<int>());
-   return kappa;
- }
+// [[Rcpp::export]]
+arma::cube autocov_ss_cpp(const arma::mat& T,const arma::mat& P,int m,int maxlag) {
+  if (m<1 || m>static_cast<int>(T.n_rows) || maxlag<0) Rcpp::stop("Invalid covariance dimensions or lag");
+  arma::cube out(m,m,maxlag+1,arma::fill::zeros);
+  // Only Cov(state_{t+h}, y_t) is needed; avoid d x d x horizon storage.
+  arma::mat cross=P.cols(0,m-1);
+  for(int h=0;h<=maxlag;++h) {
+    out.slice(h)=cross.rows(0,m-1);
+    if(h<maxlag) cross=T*cross;
+  }
+  return out;
+}
+
+// Conditional Gaussian echelon likelihood. pattern columns are
+// type (0=constant,1=Phi0,2=AR,3=MA), equation, variable, lag; indices are zero-based
+// except lag. Positive MA signs follow varma's convention throughout.
+// [[Rcpp::export]]
+Rcpp::List echelon_css_cpp(const arma::mat& Y,const arma::vec& pars,
+                         const arma::imat& pattern,int order,bool gradient=true) {
+  const int n=Y.n_rows,m=Y.n_cols,k=pars.n_elem,used=n-order;
+  arma::vec score(k,arma::fill::zeros);
+  const auto invalid=[&]() {return Rcpp::List::create(Rcpp::Named("valid")=false,
+      Rcpp::Named("value")=1e100,Rcpp::Named("gradient")=score);};
+  if(order<0 || used<=m || !Y.is_finite() || !pars.is_finite() ||
+      pattern.n_rows!=pars.n_elem || pattern.n_cols!=4) return invalid();
+  arma::mat phi0=arma::eye<arma::mat>(m,m),inverse;
+  arma::cube ar(m,m,order,arma::fill::zeros),ma(m,m,order,arma::fill::zeros);
+  arma::vec constant(m,arma::fill::zeros);
+  for(int j=0;j<k;++j) {
+    const int kind=pattern(j,0),i=pattern(j,1),v=pattern(j,2),lag=pattern(j,3);
+    if(i<0 || i>=m || v<0 || v>=m || kind<0 || kind>3 || lag<0 || lag>order) return invalid();
+    if(kind==0) constant(i)=pars(j);
+    else if(kind==1) {if(i<=v) return invalid();phi0(i,v)=pars(j);}
+    else {if(lag<1) return invalid();(kind==2 ? ar : ma)(i,v,lag-1)=pars(j);}
+  }
+  if(!arma::solve(inverse,arma::trimatl(phi0),arma::eye<arma::mat>(m,m),arma::solve_opts::no_approx)) return invalid();
+  constant=inverse*constant;
+  for(int j=0;j<order;++j) {ar.slice(j)=inverse*ar.slice(j);ma.slice(j)=inverse*ma.slice(j);}
+  if(order) {
+    arma::mat ca(m*order,m*order,arma::fill::zeros),cb=ca;
+    if(order>1) {
+      ca.submat(0,m,m*(order-1)-1,m*order-1)=arma::eye<arma::mat>(m*(order-1),m*(order-1));
+      cb=ca;
+    }
+    for(int j=0;j<order;++j) {
+      ca.submat(j*m,0,(j+1)*m-1,m-1)=ar.slice(j);
+      cb.submat(j*m,0,(j+1)*m-1,m-1)=-ma.slice(j);
+    }
+    if(!stable_matrix(ca) || !stable_matrix(cb)) return invalid();
+  }
+  arma::mat E=varma_residuals(Y,ar,ma,constant);
+  arma::mat valid=E.rows(order,n-1),Sigma=valid.t()*valid/used,W;
+  if(!Sigma.is_finite() || !arma::inv_sympd(W,Sigma)) return invalid();
+  const double value=.5*(used*m*(M_LOG2PI+1)+used*arma::log_det_sympd(Sigma));
+  if(gradient && k) {
+    arma::cube history(m,k,order+1,arma::fill::zeros);
+    for(int t=order;t<n;++t) {
+      arma::mat direct(m,k,arma::fill::zeros);
+      for(int j=0;j<k;++j) {
+        int kind=pattern(j,0),i=pattern(j,1),v=pattern(j,2),lag=pattern(j,3);
+        if(kind==0) direct(i,j)=1;
+        else if(kind==1) direct(i,j)=-(Y(t,v)-E(t,v));
+        else if(kind==2) direct(i,j)=Y(t-lag,v);
+        else direct(i,j)=E(t-lag,v);
+      }
+      arma::mat D=inverse*direct;
+      for(int lag=1;lag<=order;++lag)
+        if(t-lag>=order) D-=ma.slice(lag-1)*history.slice((t-lag)%(order+1));
+      history.slice(t%(order+1))=D;
+      score-=D.t()*W*E.row(t).t();
+    }
+  }
+  return Rcpp::List::create(Rcpp::Named("valid")=true,Rcpp::Named("value")=value,
+    Rcpp::Named("gradient")=score,Rcpp::Named("ar")=ar,Rcpp::Named("ma")=ma,
+    Rcpp::Named("intercept")=constant,Rcpp::Named("Phi0")=phi0,
+    Rcpp::Named("cov")=Sigma,Rcpp::Named("residuals")=E);
+}
+
+// Sequential canonical-correlation selection, written independently from the
+// statistical procedure in Tsay (2014, Chapter 4). MTS::Kronid is a numerical
+// reference, not a runtime dependency or a source-code inclusion.
+//
+// Two-pass modified Gram-Schmidt makes appending or rejecting a candidate
+// future column inexpensive. Rebuild the bases after each horizon changes the
+// aligned sample; within a horizon the past factorization never changes.
+static void kronid_append_basis(arma::mat& basis,arma::uword column,
+                                arma::vec candidate,double tol) {
+  candidate-=arma::mean(candidate);
+  const double original_norm=arma::norm(candidate,2);
+  if(!(original_norm>0) || !std::isfinite(original_norm))
+    Rcpp::stop("Future data contain a constant column; supply kidx or revise the data");
+  candidate/=original_norm;
+  if(column) {
+    const auto previous=basis.cols(0,column-1);
+    for(int pass=0;pass<2;++pass) candidate-=previous*(previous.t()*candidate);
+  }
+  const double remainder=arma::norm(candidate,2);
+  if(!std::isfinite(remainder) || remainder<=tol)
+    Rcpp::stop("Future data are numerically rank deficient; supply kidx or remove redundant series");
+  basis.col(column)=candidate/remainder;
+}
+
+static double kronid_serial_correction(arma::vec x,arma::vec y,int horizon) {
+  x-=arma::mean(x);y-=arma::mean(y);
+  const double xx=arma::dot(x,x),yy=arma::dot(y,y);
+  double correction=1;
+  for(int lag=1;lag<=horizon;++lag) {
+    const arma::uword count=x.n_elem-lag;
+    const double acfx=arma::dot(x.head(count),x.tail(count))/xx;
+    const double acfy=arma::dot(y.head(count),y.tail(count))/yy;
+    correction+=2*acfx*acfy;
+  }
+  return correction;
+}
+
+// [[Rcpp::export]]
+Rcpp::List kronid_cpp(const arma::mat& Y,int plag,double crit,double tol=1e-7) {
+  const int n=Y.n_rows,m=Y.n_cols;
+  if(n<1 || m<1 || plag<1 || !Y.is_finite() ||
+      !std::isfinite(crit) || crit<=0 || crit>=1 ||
+      !std::isfinite(tol) || tol<=0 || tol>=1)
+    Rcpp::stop("Invalid data or controls for Kronecker-index selection");
+  if(n-static_cast<double>(plag)<=2.0*m*plag+1)
+    Rcpp::stop("Too few observations for plag; reduce plag or supply kidx");
+  const int past_dim=m*plag,base_rows=n-plag;
+  arma::mat data=Y;
+  for(int j=0;j<m;++j) {
+    // Scale before centering to avoid overflowing sums of otherwise finite data.
+    const double largest=arma::max(arma::abs(data.col(j)));
+    if(!(largest>0)) Rcpp::stop("Index selection requires nonconstant series");
+    data.col(j)/=largest;
+    data.col(j)-=arma::mean(data.col(j));
+    const double scale=arma::norm(data.col(j),2);
+    if(!(scale>0) || !std::isfinite(scale))
+      Rcpp::stop("Index selection requires nonconstant series");
+    data.col(j)/=scale;
+  }
+  arma::mat past(base_rows,past_dim);
+  for(int lag=1;lag<=plag;++lag)
+    past.cols((lag-1)*m,lag*m-1)=data.rows(plag-lag,n-lag-1);
+
+  Rcpp::IntegerVector indices(m,NA_INTEGER);
+  std::vector<std::pair<int,int>> retained;
+  arma::mat details(past_dim+m,11,arma::fill::zeros);
+  int remaining=m,test_count=0;
+  // Every unresolved series adds a retained column at each horizon. With
+  // past_dim finite, this bound cannot be reached without a dimension error.
+  for(int horizon=0;horizon<=past_dim && remaining;++horizon) {
+    Rcpp::checkUserInterrupt();
+    const int rows=base_rows-horizon;
+    arma::mat centered=past.head_rows(rows),Qpast,Rpast;
+    centered.each_row()-=arma::mean(centered,0);
+    for(int j=0;j<past_dim;++j) {
+      const double norm=arma::norm(centered.col(j),2);
+      if(!(norm>0)) Rcpp::stop("Lagged data contain a constant column; supply kidx or revise the data");
+      centered.col(j)/=norm;
+    }
+    if(!arma::qr_econ(Qpast,Rpast,centered) || arma::rcond(Rpast)<=tol)
+      Rcpp::stop("Lagged data are numerically rank deficient; reduce plag or remove redundant series");
+    arma::mat Qfuture(rows,past_dim,arma::fill::none);
+    arma::mat cross(past_dim,past_dim,arma::fill::none);
+    int width=retained.size();
+    for(int j=0;j<width;++j) {
+      const int first=plag+retained[j].first,component=retained[j].second;
+      kronid_append_basis(Qfuture,j,data.col(component).subvec(first,first+rows-1),tol);
+      cross.col(j)=Qpast.t()*Qfuture.col(j);
+    }
+    for(int component=0;component<m;++component) {
+      if(indices[component]!=NA_INTEGER) continue;
+      const int future_dim=width+1;
+      if(future_dim>past_dim)
+        Rcpp::stop("Past dimension exhausted before all indices were found; increase plag or supply kidx");
+      if(rows<=past_dim+future_dim)
+        Rcpp::stop("Too few aligned observations for the canonical-correlation test; supply kidx or use more data");
+      kronid_append_basis(Qfuture,width,
+        data.col(component).subvec(plag+horizon,n-1),tol);
+      cross.col(width)=Qpast.t()*Qfuture.col(width);
+      arma::vec correlations;
+      arma::mat U,V;
+      double correction=1;
+      if(horizon==0) {
+        if(!arma::svd(correlations,cross.cols(0,width)))
+          Rcpp::stop("Canonical-correlation SVD failed");
+      } else {
+        if(!arma::svd_econ(U,correlations,V,cross.cols(0,width)))
+          Rcpp::stop("Canonical-correlation SVD failed");
+        correction=kronid_serial_correction(Qpast*U.col(width),
+                    Qfuture.cols(0,width)*V.col(width),horizon);
+      }
+      const double smallest=std::min(1.0,correlations[width]);
+      const double squared=smallest*smallest;
+      if(!std::isfinite(correction) || correction<=0)
+        Rcpp::stop("Invalid serial-correlation correction at horizon %d, component %d; adjust plag or supply kidx",
+                   horizon,component+1);
+      double adjusted=squared/correction;
+      if(adjusted>1+tol)
+        Rcpp::stop("Corrected squared canonical correlation exceeds one at horizon %d, component %d; adjust plag or supply kidx",
+                   horizon,component+1);
+      adjusted=std::min(1.0,adjusted);
+      const double statistic=-(n-1-.5*(past_dim+future_dim-1))*std::log1p(-adjusted);
+      const int degrees=past_dim-future_dim+1;
+      const double pvalue=R::pchisq(statistic,degrees,false,false);
+      details.row(test_count++)=arma::rowvec({static_cast<double>(horizon),
+        static_cast<double>(component+1),static_cast<double>(rows),
+        static_cast<double>(past_dim),static_cast<double>(future_dim),
+        squared,correction,adjusted,statistic,static_cast<double>(degrees),pvalue});
+      if(pvalue>crit) {
+        indices[component]=horizon;
+        --remaining;
+        // Discard the candidate at EVERY horizon, including zero. Accepted
+        // columns from earlier horizons remain in the basis.
+      } else {
+        retained.emplace_back(horizon,component);
+        ++width;
+      }
+    }
+  }
+  if(remaining) Rcpp::stop("Index selection exhausted the search space; increase plag or supply kidx");
+  arma::mat used_details=details.head_rows(test_count);
+  arma::mat tests=used_details.cols(8,10).t();
+  return Rcpp::List::create(Rcpp::Named("index")=indices,
+    Rcpp::Named("tests")=tests,Rcpp::Named("details")=used_details);
+}

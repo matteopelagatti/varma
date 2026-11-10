@@ -1,46 +1,22 @@
 library(tidyverse)
 library(varma)
-library(MTS)
 
 
 ################################################################################
 # FUNCTIONS FOR THE SIMULATION EXPERIMENTS                                     #
 ################################################################################
 
-#' Estimate VARMA in Echelon form exploiting the package MTS
+#' Estimate VARMA in Echelon form using the package's internal estimator
 #'
 #' @param Y matrix with time series to predict (time in rows).
 #' @param intercept estimate intercept to allow non-zero mean processes.
 #' @param plag number of lags used to represent the past vector. Default is 5.
 #' @param crit type-I error rate used in testing for zero canonical correlations. Deafult is 0.05
-#' @param kind Kronecker indices: if NULL Kronid is called with \code{plag} and \code{crit}
+#' @param kind Kronecker indices: if NULL they are selected internally.
 #'
 #' @returns An object of class \code{varma}.
 fit_varma_ech <- function(Y, intercept = TRUE, plag = 5, crit = 0.05, kind = NULL) {
-  fn_name <- as.character(sys.call()[[1]])
-  if (is.null(kind)) kind <- MTS::Kronid(Y, plag, crit)$index
-  kfit <- MTS::Kronfit(Y, kind, intercept)
-  m <- dim(kfit$Sigma)[1]
-  nobs <- prod(dim(kfit$residuals))
-
-  iPhi0  <- solve(kfit$Ph0)
-  # MTS echelon form: Phi_0 Y_t = c + Phi_1 Y_{t-1} + ... + Phi_0 a_t - Theta_1 a_{t-1} - ...
-  # Pre-multiplying by Phi_0^{-1}: Y_t = Phi_0^{-1} c + Phi_0^{-1} Phi_j Y_{t-j} + a_t - Phi_0^{-1} Theta_j a_{t-j}
-  # So: intercept = iPhi0 %*% c, AR_j = iPhi0 %*% Phi_j, MA_j = -iPhi0 %*% Theta_j, Cov(a_t) = kfit$Sigma
-  out <-  varma(intercept = as.vector(iPhi0 %*% kfit$const),
-                ar = array(iPhi0 %*% kfit$Phi, c(m, m, ncol(kfit$Phi)/m)),
-                ma = array(-iPhi0 %*% kfit$Theta, c(m, m, ncol(kfit$Theta)/m)),
-                cov = kfit$Sigma,
-                estimation_method = fn_name,
-                loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-                  (nrow(kfit$residuals) / 2) * determinant(kfit$Sigma, logarithm = TRUE)$modulus,
-                n = nrow(kfit$residuals),
-                nobs = nobs,
-                npar = length(kfit$coef),
-                y = Y,
-                residuals = kfit$residuals)
-  # out$residuals <- residuals(out)
-  out
+  fit_varma_echelon(Y,kidx=kind,intercept=intercept,plag=plag,crit=crit)
 }
 
 
@@ -810,7 +786,10 @@ plot_fcst_distribution <- function(sim,
                    FUN = quantile, probs = q_probs, na.rm = TRUE)
 
     # RMSE
-    rmse[, , k] <- apply(sims^2, 1:2, function(x) sqrt(mean(x[abs(x)<10]^2, na.rm = TRUE)))
+    # sims contains forecast errors: square once and retain large errors.
+    # Dropping failed fits (NA) makes this conditional on successful fits;
+    # their frequency must be reported separately in simulation summaries.
+    rmse[, , k] <- apply(sims, 1:2, function(x) sqrt(mean(x^2, na.rm = TRUE)))
 
     chunk <- base_grid
     for (qi in seq_along(q_names))

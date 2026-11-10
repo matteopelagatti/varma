@@ -18,15 +18,11 @@ Pass a zero-slice cube when \code{q = 0}.}
 (default \code{1e-8}).}
 }
 \value{
-Integer vector of length \code{m} with Kronecker indices sorted
-        in non-increasing order.
+Integer vector of length \code{m} with Kronecker indices
+        in output-series order (not sorted).
 }
 \description{
-Determines the Kronecker indices from the VARMA transfer function
-\eqn{\Phi(z)^{-1}\Theta(z)} via the rank profile of the block Hankel
-matrix of impulse-response coefficients.  The identity
-\eqn{\mathrm{rank}(H_s) = \sum_k \min(\kappa_k, s)} implies
-\eqn{\Delta_s = \mathrm{rank}(H_s) - \mathrm{rank}(H_{s-1}) = \#\{k : \kappa_k \ge s\}},
-so the Kronecker indices are the conjugate partition of
-\eqn{(\Delta_1, \Delta_2, \ldots)}.
+Determines output-ordered Kronecker indices from the first dependent row of
+a sufficiently wide block Hankel matrix of transfer coefficients. Series order
+is preserved for use in echelon estimation. Numerical ranks depend on tol.
 }

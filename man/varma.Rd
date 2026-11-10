@@ -45,7 +45,7 @@ make its reusable by other functions, that can be more efficient.}
 
 \item{n}{number of time-points of the time series (regardless of possible missing observations).}
 
-\item{nobs}{total number of observations (if no missing observations are present, `nobs`\eqn{=nm}).}
+\item{nobs}{number of vector observations contributing to the likelihood.}
 
 \item{npar}{number of estimated parameters.}
 

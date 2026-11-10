@@ -16,7 +16,7 @@ fit_varma_net(
   sur = TRUE,
   maxdiff = 1e-05,
   maxit = 100,
-  r = max(p + q, round(nrow(Y)/(4 * ncol(Y)))),
+  r = .varma_long_order(as.matrix(Y), p, q, intercept),
   parallel = FALSE,
   n_cores = NULL,
   ret = c("varma", "regression")
@@ -31,7 +31,8 @@ fit_varma_net(
 
 \item{intercept}{boolean, if TRUE, the model will include an intercept.}
 
-\item{lambda}{positive numeric regularization parameter.}
+\item{lambda}{NULL for a cross-validated path, a non-negative scalar for a fixed
+penalty, or a vector of non-negative candidate penalties for cross-validation.}
 
 \item{alpha}{value in the interval [0, 1]; 1 for pure LASSO and 0 for pure RIDGE.}
 
@@ -47,9 +48,7 @@ regression coefficient computed by OLS (using only the active regressors).}
 \item{sur}{logical, if TRUE a final seemingly unrelated regressions
 step is computed, otherwise the equation by equation estimate is provided.}
 
-\item{maxdiff}{maximum difference between the coefficients of two consecutive
-iterations in the first step based on `fit_varma_ihr`:
-it is used as a threshold to stop the iterations.}
+\item{maxdiff}{convergence tolerance passed to `fit_varma_ihr`.}
 
 \item{maxit}{maximum number of iterations to be used in the first step
 based on `fit_varma_ihr`.}
@@ -63,8 +62,10 @@ based on `fit_varma_ihr`.}
 \item{ret}{a character string indicating the type of output: "varma" or "regression".}
 }
 \value{
-If ret = "varma" a varma object, otherwise a list with the results of
-cv.glmnet for each response variable.
+A varma object with refreshed recursive innovations and covariance, or
+a list of glmnet fits (fixed lambda) or cv.glmnet fits (a penalty path).
+SUR uses the selected support. The parameter count includes innovation covariance
+parameters and is a nominal count, not a general effective-df formula for penalized fits.
 }
 \description{
 VARMA estimation using the iterated Hannan-Rissanen method with regularization

@@ -80,6 +80,21 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// solve_dlyap_dense_cpp
+arma::mat solve_dlyap_dense_cpp(const arma::mat& T, const arma::mat& C, int max_iter, double tol, std::string method);
+RcppExport SEXP _varma_solve_dlyap_dense_cpp(SEXP TSEXP, SEXP CSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP methodSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type T(TSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type C(CSEXP);
+    Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    Rcpp::traits::input_parameter< std::string >::type method(methodSEXP);
+    rcpp_result_gen = Rcpp::wrap(solve_dlyap_dense_cpp(T, C, max_iter, tol, method));
+    return rcpp_result_gen;
+END_RCPP
+}
 // kalmanLogLik
 double kalmanLogLik(const arma::sp_mat& T, const arma::sp_mat& R, const arma::mat& Q, arma::mat& a1, arma::mat& P1, const arma::mat& Yt, const bool update_state, const double ss_tol);
 RcppExport SEXP _varma_kalmanLogLik(SEXP TSEXP, SEXP RSEXP, SEXP QSEXP, SEXP a1SEXP, SEXP P1SEXP, SEXP YtSEXP, SEXP update_stateSEXP, SEXP ss_tolSEXP) {
@@ -245,6 +260,79 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// varma_candidate_cpp
+Rcpp::List varma_candidate_cpp(const arma::vec& pars, int m, int p, int q, bool intercept);
+RcppExport SEXP _varma_varma_candidate_cpp(SEXP parsSEXP, SEXP mSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::vec& >::type pars(parsSEXP);
+    Rcpp::traits::input_parameter< int >::type m(mSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type q(qSEXP);
+    Rcpp::traits::input_parameter< bool >::type intercept(interceptSEXP);
+    rcpp_result_gen = Rcpp::wrap(varma_candidate_cpp(pars, m, p, q, intercept));
+    return rcpp_result_gen;
+END_RCPP
+}
+// varma_loglik_cpp
+double varma_loglik_cpp(const arma::vec& pars, const arma::mat& Yt, int p, int q, bool intercept);
+RcppExport SEXP _varma_varma_loglik_cpp(SEXP parsSEXP, SEXP YtSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::vec& >::type pars(parsSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type Yt(YtSEXP);
+    Rcpp::traits::input_parameter< int >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type q(qSEXP);
+    Rcpp::traits::input_parameter< bool >::type intercept(interceptSEXP);
+    rcpp_result_gen = Rcpp::wrap(varma_loglik_cpp(pars, Yt, p, q, intercept));
+    return rcpp_result_gen;
+END_RCPP
+}
+// autocov_ss_cpp
+arma::cube autocov_ss_cpp(const arma::mat& T, const arma::mat& P, int m, int maxlag);
+RcppExport SEXP _varma_autocov_ss_cpp(SEXP TSEXP, SEXP PSEXP, SEXP mSEXP, SEXP maxlagSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type T(TSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type P(PSEXP);
+    Rcpp::traits::input_parameter< int >::type m(mSEXP);
+    Rcpp::traits::input_parameter< int >::type maxlag(maxlagSEXP);
+    rcpp_result_gen = Rcpp::wrap(autocov_ss_cpp(T, P, m, maxlag));
+    return rcpp_result_gen;
+END_RCPP
+}
+// echelon_css_cpp
+Rcpp::List echelon_css_cpp(const arma::mat& Y, const arma::vec& pars, const arma::imat& pattern, int order, bool gradient);
+RcppExport SEXP _varma_echelon_css_cpp(SEXP YSEXP, SEXP parsSEXP, SEXP patternSEXP, SEXP orderSEXP, SEXP gradientSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type pars(parsSEXP);
+    Rcpp::traits::input_parameter< const arma::imat& >::type pattern(patternSEXP);
+    Rcpp::traits::input_parameter< int >::type order(orderSEXP);
+    Rcpp::traits::input_parameter< bool >::type gradient(gradientSEXP);
+    rcpp_result_gen = Rcpp::wrap(echelon_css_cpp(Y, pars, pattern, order, gradient));
+    return rcpp_result_gen;
+END_RCPP
+}
+// kronid_cpp
+Rcpp::List kronid_cpp(const arma::mat& Y, int plag, double crit, double tol);
+RcppExport SEXP _varma_kronid_cpp(SEXP YSEXP, SEXP plagSEXP, SEXP critSEXP, SEXP tolSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< int >::type plag(plagSEXP);
+    Rcpp::traits::input_parameter< double >::type crit(critSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(kronid_cpp(Y, plag, crit, tol));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_varma_varma_acf", (DL_FUNC) &_varma_varma_acf, 4},
@@ -252,6 +340,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_irf_varma_rcpp", (DL_FUNC) &_varma_irf_varma_rcpp, 4},
     {"_varma_sim_varma_rcpp", (DL_FUNC) &_varma_sim_varma_rcpp, 3},
     {"_varma_solve_dlyap_iter", (DL_FUNC) &_varma_solve_dlyap_iter, 4},
+    {"_varma_solve_dlyap_dense_cpp", (DL_FUNC) &_varma_solve_dlyap_dense_cpp, 5},
     {"_varma_kalmanLogLik", (DL_FUNC) &_varma_kalmanLogLik, 8},
     {"_varma_kalman", (DL_FUNC) &_varma_kalman, 9},
     {"_varma_sur_cpp", (DL_FUNC) &_varma_sur_cpp, 3},
@@ -263,6 +352,11 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_autocov_mi_cpp", (DL_FUNC) &_varma_autocov_mi_cpp, 4},
     {"_varma_rby_optimization_step", (DL_FUNC) &_varma_rby_optimization_step, 7},
     {"_varma_kronecker_indices_cpp", (DL_FUNC) &_varma_kronecker_indices_cpp, 3},
+    {"_varma_varma_candidate_cpp", (DL_FUNC) &_varma_varma_candidate_cpp, 5},
+    {"_varma_varma_loglik_cpp", (DL_FUNC) &_varma_varma_loglik_cpp, 5},
+    {"_varma_autocov_ss_cpp", (DL_FUNC) &_varma_autocov_ss_cpp, 4},
+    {"_varma_echelon_css_cpp", (DL_FUNC) &_varma_echelon_css_cpp, 5},
+    {"_varma_kronid_cpp", (DL_FUNC) &_varma_kronid_cpp, 4},
     {NULL, NULL, 0}
 };
 

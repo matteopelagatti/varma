@@ -10,7 +10,7 @@ irf(
   orth = c("none", "cholesky", "spectral", "generalized"),
   plot = FALSE,
   title = NULL,
-  varnames = paste0("y", 1:dim(varma)[1])
+  varnames = NULL
 )
 }
 \arguments{

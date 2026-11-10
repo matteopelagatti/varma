@@ -12,7 +12,8 @@
 \item{...}{not used.}
 }
 \value{
-A numeric scalar with the number of observations.
+Number of vector observations used in the likelihood, not the total
+number of scalar entries across variables.
 }
 \description{
 nobs method for a varma object

@@ -10,7 +10,8 @@ fit_varma_kfas(
   q = 1,
   intercept = TRUE,
   maxit = 100,
-  ret = c("varma", "kfas")
+  ret = c("varma", "kfas"),
+  control = list()
 )
 }
 \arguments{
@@ -22,17 +23,23 @@ fit_varma_kfas(
 
 \item{intercept}{logical, if TRUE, the model will include an intercept.}
 
-\item{maxit}{integer, maximum number of iterations for the iterated Hannan-Rissanen
-estimator, which is used for providing starting values for numerical MLE and for
-computing the marginal covariance matrix of the VARMA in state-space form, used
-for initializing the Kalman filter.}
+\item{maxit}{maximum iterations of the pilot Hannan--Rissanen estimator.}
 
 \item{ret}{a character string indicating the type of output: "varma" or
-"kfas" (a KFAS' SSModel object).}
+"kfas" (a list with model, the fitted SSModel, and optim.out).}
+
+\item{control}{list passed to stats::optim; control$maxit controls likelihood iterations.}
 }
 \value{
-If ret = "varma" a varma object, otherwise a SSModel object from the KFAS package.
+A varma object, or a list containing model and optim.out. Stored errors
+are multivariate prediction errors from KFAS::mvInnovations.
 }
 \description{
 VARMA estimation using Maximum-Likelihood in State-Space form using KFAS
+}
+\details{
+The Gaussian likelihood uses a stationary initial covariance recomputed
+at each candidate. Optimisation is restricted to stable AR and invertible MA
+polynomials. The returned optim.out records numerical convergence; a local optimum
+is not a guarantee of global maximisation. No echelon restrictions are imposed.
 }

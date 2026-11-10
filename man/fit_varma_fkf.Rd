@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{fit_varma_fkf}
 \alias{fit_varma_fkf}
-\title{VARMA estimation using Maximum-Likelihoo in State-Space form (FKF.SP)}
+\title{VARMA estimation using maximum likelihood in state-space form (FKF.SP)}
 \usage{
 fit_varma_fkf(
   Y,
@@ -10,7 +10,8 @@ fit_varma_fkf(
   q = 1,
   intercept = TRUE,
   maxit = 100,
-  ret = c("varma", "ss")
+  ret = c("varma", "ss"),
+  control = list()
 )
 }
 \arguments{
@@ -22,18 +23,23 @@ fit_varma_fkf(
 
 \item{intercept}{boolean, if TRUE, the model will include an intercept.}
 
-\item{maxit}{integer, maximum number of iterations for the iterated Hannan-Rissanen
-estimator, which is used for providing starting values for numerical MLE and for
-computing the marginal covariance matrix of the VARMA in state-space form, used
-for initializing the Kalman filter.}
+\item{maxit}{maximum iterations of the pilot Hannan--Rissanen estimator.}
 
 \item{ret}{a character string indicating the type of output: "varma" (default)
 or "ss" (a list with the state-space form matrices and fkf function output).}
+
+\item{control}{list passed to stats::optim; control$maxit controls likelihood iterations.}
 }
 \value{
 A varma object or a list with the matrices of the state-space form,
 according to the choice of the `ret` parameter.
 }
 \description{
-VARMA estimation using Maximum-Likelihoo in State-Space form (FKF.SP)
+VARMA estimation using maximum likelihood in state-space form (FKF.SP)
+}
+\details{
+The Gaussian likelihood uses a stationary initial covariance recomputed
+at each candidate. Optimisation is restricted to stable AR and invertible MA
+polynomials. The returned optim.out records numerical convergence; a local optimum
+is not a guarantee of global maximisation. No echelon restrictions are imposed.
 }

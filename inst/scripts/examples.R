@@ -49,5 +49,5 @@ c(
   DPF = irf_distance(irf(mod1), irf(est_dpf))
 )
 
-kronecker_indices(mod1$ar, mod1$ma, 3)
-MTS::Kronid(Y1)
+kronecker_indices(mod1)
+select_kronecker_indices(Y1)

@@ -1,0 +1,2 @@
+package 'varma' successfully unpacked and MD5 sums checked
+Windows binary installed and simulation smoke test passed.

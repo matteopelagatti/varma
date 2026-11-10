@@ -12,7 +12,8 @@ bootstrap_varma(
   fit_fn = get(varma$estimation_method),
   ...,
   parallel = FALSE,
-  n_cores = NULL
+  n_cores = NULL,
+  burn_in = 100
 )
 }
 \arguments{
@@ -23,7 +24,8 @@ bootstrap_varma(
 \item{n}{length of the time series (default: the `n` in the varma object).}
 
 \item{resids_to_skip}{non-negative integer witht he number of initial residuals to drop because
-they may have a very large variance (default: 5).}
+they may have a very large variance (default: 5). Zero skips no valid residuals;
+rows marked as presample by residuals_start are always excluded.}
 
 \item{fit_fn}{function to apply to every simulated path: it is usually a
 `fit_varma_???` function (default: the function that generated the estimates
@@ -35,6 +37,8 @@ in the varma object).}
 
 \item{n_cores}{number of cores for parallel processing. If NULL, uses
 parallel::detectCores() - 1 (default: NULL).}
+
+\item{burn_in}{number of simulated initial observations to discard (default: 100).}
 }
 \value{
 A list with `nsim` slots containing the applications of the
@@ -44,4 +48,10 @@ function `fit_fn` to the simulated sample paths.
 It produces sample paths of a varma process by bootstrapping the residuals
 of an estimated varma. A function (usually a fit_varma function) is applied
 to the simulated sample paths.
+}
+\details{
+Residual vectors are centred and resampled jointly. The fitted process
+mean is restored after simulation. The fitted model must be stable and invertible.
+These implementation checks do not establish bootstrap validity at singular
+or unidentified distributions.
 }

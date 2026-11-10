@@ -27,12 +27,12 @@ Imports:
   KFAS (>= 1.6.0),
   FKF.SP (>= 0.3.4),
   Matrix,
+  parallel,
   future (>= 1.67.0),
   future.apply (>= 1.20.0),
   glmnet,
   utils
 Suggests:
-  MTS (>= 1.2.1),
   fable (>= 0.4.1),
   knitr,
   rmarkdown

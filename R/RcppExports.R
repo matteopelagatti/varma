@@ -37,6 +37,10 @@ solve_dlyap_iter <- function(T, C, max_iter = 200L, tol = 1e-10) {
     .Call(`_varma_solve_dlyap_iter`, T, C, max_iter, tol)
 }
 
+solve_dlyap_dense_cpp <- function(T, C, max_iter = 200L, tol = 1e-10, method = "auto") {
+    .Call(`_varma_solve_dlyap_dense_cpp`, T, C, max_iter, tol, method)
+}
+
 kalmanLogLik <- function(T, R, Q, a1, P1, Yt, update_state = FALSE, ss_tol = 1e-8) {
     .Call(`_varma_kalmanLogLik`, T, R, Q, a1, P1, Yt, update_state, ss_tol)
 }
@@ -120,13 +124,9 @@ rby_optimization_step <- function(Y, Phi_cube, Theta_cube, p, q, intercept, c_ve
 
 #' Kronecker indices for the VARMA echelon form
 #'
-#' Determines the Kronecker indices from the VARMA transfer function
-#' \eqn{\Phi(z)^{-1}\Theta(z)} via the rank profile of the block Hankel
-#' matrix of impulse-response coefficients.  The identity
-#' \eqn{\mathrm{rank}(H_s) = \sum_k \min(\kappa_k, s)} implies
-#' \eqn{\Delta_s = \mathrm{rank}(H_s) - \mathrm{rank}(H_{s-1}) = \#\{k : \kappa_k \ge s\}},
-#' so the Kronecker indices are the conjugate partition of
-#' \eqn{(\Delta_1, \Delta_2, \ldots)}.
+#' Determines output-ordered Kronecker indices from the first dependent row of
+#' a sufficiently wide block Hankel matrix of transfer coefficients. Series order
+#' is preserved for use in echelon estimation. Numerical ranks depend on tol.
 #'
 #' @param Phi   \eqn{m \times m \times p} cube of VAR coefficients.
 #'              Pass a zero-slice cube (\code{array(0, c(m, m, 0))}) when
@@ -135,9 +135,29 @@ rby_optimization_step <- function(Y, Phi_cube, Theta_cube, p, q, intercept, c_ve
 #'              Pass a zero-slice cube when \code{q = 0}.
 #' @param tol   Relative singular-value threshold for numerical rank
 #'              (default \code{1e-8}).
-#' @return Integer vector of length \code{m} with Kronecker indices sorted
-#'         in non-increasing order.
+#' @return Integer vector of length \code{m} with Kronecker indices
+#'         in output-series order (not sorted).
 kronecker_indices_cpp <- function(Phi, Theta, tol = 1e-8) {
     .Call(`_varma_kronecker_indices_cpp`, Phi, Theta, tol)
+}
+
+varma_candidate_cpp <- function(pars, m, p, q, intercept) {
+    .Call(`_varma_varma_candidate_cpp`, pars, m, p, q, intercept)
+}
+
+varma_loglik_cpp <- function(pars, Yt, p, q, intercept) {
+    .Call(`_varma_varma_loglik_cpp`, pars, Yt, p, q, intercept)
+}
+
+autocov_ss_cpp <- function(T, P, m, maxlag) {
+    .Call(`_varma_autocov_ss_cpp`, T, P, m, maxlag)
+}
+
+echelon_css_cpp <- function(Y, pars, pattern, order, gradient = TRUE) {
+    .Call(`_varma_echelon_css_cpp`, Y, pars, pattern, order, gradient)
+}
+
+kronid_cpp <- function(Y, plag, crit, tol = 1e-7) {
+    .Call(`_varma_kronid_cpp`, Y, plag, crit, tol)
 }
 

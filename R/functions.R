@@ -29,7 +29,7 @@ NULL
 #' @param estimation_method string with the name of the function that produced the estimates.
 #' @param loglik value of the log-likelihood function for the estimated VARMA.
 #' @param n number of time-points of the time series (regardless of possible missing observations).
-#' @param nobs total number of observations (if no missing observations are present, `nobs`\eqn{=nm}).
+#' @param nobs number of vector observations contributing to the likelihood.
 #' @param npar number of estimated parameters.
 #' @param y \eqn{n\times m} or \eqn{n-p\times m} data matrix.
 #' @param residuals \eqn{n\times m} or \eqn{n-p\times m} residuals matrix.
@@ -138,7 +138,7 @@ print.varma <- function(x, ...) {
   if (!is.null(x$ar) && mpq[2] > 0) {
     cat("\nAR part:\n")
     for (i in 1:mpq[2]) {
-      M <- x$ar[,,i]
+      M <- matrix(x$ar[,,i], mpq[1], mpq[1])
       dimnames(M) <- list(
         paste0("y", 1:mpq[1], "_t"),
         paste0("y", 1:mpq[1], "_[t-", i, "]")
@@ -149,7 +149,7 @@ print.varma <- function(x, ...) {
   if (!is.null(x$ma) && mpq[3] > 0) {
     cat("\nMA part:\n")
     for (i in 1:mpq[3]) {
-      M <- x$ma[,,i]
+      M <- matrix(x$ma[,,i], mpq[1], mpq[1])
       dimnames(M) <- list(
       paste0("y", 1:mpq[1], "_t"),
       paste0("e", 1:mpq[1], "_[t-", i, "]")
@@ -169,16 +169,13 @@ print.varma <- function(x, ...) {
     cat("\nEstimated using", x$estimation_method, "\n")
   }
   if (!is.null(x$loglik)) {
-    npar <- if (is.null(x$npar)) {
-      mpq[1]*mpq[1]*mpq[2] + mpq[1]*mpq[1]*mpq[3] + mpq[1]*(mpq[1]+1)/2
-    } else x$npar
-    cat("N. of non-missing observations =", x$nobs, "\n")
+    npar <- attr(logLik.varma(x),"df")
+    n <- x$nobs
+    cat("N. of vector observations      =", n, "\n")
     cat("N. of estimated parameters     =", npar, "\n")
-    cat("log-lik =", x$loglik, "\n")
-    cat("AIC     =", -2*x$loglik + 2*npar, "\n")
-    cat("AICc    =", -2*x$loglik + 2*npar + 2*npar*(npar + 1)/(x$n - npar - 1), "\n")
-    cat("BIC     =", -2*x$loglik + npar*log(x$n), "\n")
-    cat("HQC     =", -2*x$loglik + npar*log(log(x$n)), "\n")
+    cat("log-lik =", as.numeric(x$loglik), "\n")
+    for (criterion in c("AIC","AICc","BIC","HQC"))
+      cat(criterion,"=",.varma_ic(as.numeric(x$loglik),npar,n,criterion),"\n")
   }
 }
 
@@ -199,23 +196,16 @@ print.varma <- function(x, ...) {
 #' @export
 residuals.varma <- function(object, Y = NULL, recompute = TRUE, ...) {
   if (!is.null(object$residuals) && !recompute) return(object$residuals)
-  if (is.null(Y) && is.null(object$y)) stop("Y and object$y both missing")
   if (is.null(Y)) Y <- object$y
-  mpq <- dim(object)
-  n <- NROW(Y)
-  if (mpq[2] == 0 && mpq[3] == 0) {
-    if (!is.null(object$intercept)) return(Y - rep(object$intercept, each = n))
-    if (!is.null(object$mean)) return(Y - rep(object$mean, each = n))
-  }
+  if (is.null(Y)) stop("Y and object$y both missing")
+  Y <- as.matrix(Y); mpq <- dim(object); m <- mpq[1L]
+  ar <- if (mpq[2L]) object$ar else array(0,c(m,m,0))
+  ma <- if (mpq[3L]) object$ma else array(0,c(m,m,0))
   if (!is.null(object$intercept)) {
-    varma_residuals(Y = Y, Phi = object$ar,
-                    Theta = object$ma, intercept = object$intercept)
-  } else if (!is.null(object$mean)) {
-    varma_residuals(Y = Y - rep(object$mean, each = n), Phi = object$ar,
-                    Theta = object$ma, intercept = numeric(0))
+    varma_residuals(Y,ar,ma,object$intercept)
   } else {
-    varma_residuals(Y = Y, Phi = object$ar,
-                    Theta = object$ma, intercept = numeric(0))
+    if (!is.null(object$mean)) Y <- sweep(Y,2,object$mean,"-")
+    varma_residuals(Y,ar,ma,numeric(0))
   }
 }
 
@@ -280,7 +270,7 @@ varma_to_ss <- function(varma, form = c("harvey", "pearlman")) {
   r <- if (form == "harvey") max(mpq[2], mpq[3]+1) else max(mpq[2], mpq[3])
   mr <- m*r
   mT <- matrix(0, mr, mr)
-  if (r > 1) diag(mT[1:(mr-m), (m+1):mr]) <- 1
+  if (r > 1) mT[1:(mr-m), (m+1):mr] <- diag(mr-m)
   mR <- if (form == "harvey") rbind(diag(m), matrix(0, mr-m, m)) else matrix(0, mr, m)
   mQ <- varma$cov
   mZ <- cbind(diag(1, m, m), matrix(0, m, mr-m))
@@ -288,11 +278,12 @@ varma_to_ss <- function(varma, form = c("harvey", "pearlman")) {
   if (mpq[2] > 0) {
     mT[1:(m*mpq[2]), 1:m] <- aperm(varma$ar, c(1, 3, 2))
   }
+  if (form == "pearlman" && mpq[2] > 0)
+    mR[1:(m*mpq[2]), ] <- aperm(varma$ar, c(1, 3, 2))
   if (mpq[3] > 0) {
     if (form == "harvey") {
       mR[(m+1):(m+m*mpq[3]), 1:m] <- aperm(varma$ma, c(1, 3, 2))
     } else {
-      if (mpq[2] > 0) mR[1:(m*mpq[2]), ] <- aperm(varma$ar, c(1, 3, 2))
       if (mpq[3] > 0) mR[1:(m*mpq[3]), ] <- mR[1:(m*mpq[3]), ] + as.numeric(aperm(varma$ma, c(1, 3, 2)))
     }
   }
@@ -376,31 +367,33 @@ is_stable <- function(varma) {
 
 #' Check if the VARMA process is identified
 #'
-#' The function checks if the VARMA process is identified by numerically checking if the
-#' roots of the characteristic polynomials are distinct.
+#' Tests uniqueness of the normalized AR and MA coefficients at the supplied
+#' orders using the rank of linear restrictions implied by the transfer function.
+#' Common scalar polynomial roots alone do not determine multivariate identification.
 #'
 #' @param varma a varma object.
-#' @param tol a small numeric value indicating the tolerance for the numerical check
-#' (default: 1e-5).
+#' @param tol relative singular-value tolerance for the numerical rank (default: 1e-5).
 #'
 #' @returns TRUE if the VARMA is identified and FALSE otherwise.
 #'
 #' @export
 is_identified <- function(varma, tol = 1e-5) {
-  if (is.null(varma$ar) || is.null(varma$ma) || length(varma$ar) == 0 || length(varma$ma) == 0) {
-    return(TRUE)
-  }
-  mpq <- dim(varma)
-  if (qr(
-    cbind(
-      matrix(varma$ar, mpq[1], mpq[1]*mpq[2]),
-      matrix(varma$ma, mpq[1], mpq[1]*mpq[3])
-    )
-  )$rank < mpq[1]) return(FALSE)
-  ir <- inv_roots(varma, c("ar", "ma"))
-  dif <- outer(ir$ar, ir$ma, function(x, y) Mod(x - y))
-  if (all(dif > tol)) TRUE else FALSE
+  mpq <- dim(varma); m <- mpq[1L]; p <- mpq[2L]; q <- mpq[3L]
+  if (length(tol)!=1L || !is.finite(tol) || tol<=0) stop("tol must be positive")
+  if (!p || !q) return(TRUE)
+  # Equal transfers satisfy Delta A(L) H(L) = Delta B(L). The coefficients
+  # above degree q therefore give linear restrictions on each row of Delta A.
+  # Multiplication by det A shows that degrees through q+m*p suffice.
+  psi <- irf(varma,maxlag=q+m*p,orth="none")
+  blocks <- lapply(seq.int(q+1L,q+m*p),function(h) {
+    do.call(rbind,lapply(seq_len(p),function(i)
+      if (h-i < 0L) matrix(0,m,m) else matrix(psi[,,h-i+1L],m,m)))
+  })
+  values <- svd(do.call(cbind,blocks),nu=0,nv=0)$d
+  if (!length(values) || max(values)==0) return(FALSE)
+  sum(values > tol*max(values)) == m*p
 }
+
 
 #' Computes the Kronecker indices of a VARMA model
 #'
@@ -455,10 +448,10 @@ irf <- function(varma, maxlag = 10,
     P <- t(chol(varma$cov))
   } else if (orth == "spectral") {
     eig <- eigen(varma$cov)
-    P <- eig$vectors %*% diag(sqrt(eig$values)) %*% t(eig$vectors)
+    P <- eig$vectors %*% diag(sqrt(eig$values), nrow = mpq[1]) %*% t(eig$vectors)
   } else if (orth == "generalized") {
     P <- varma$cov
-    P <- P / rep(sqrt(diag(varma$cov)), mpq[1])
+    P <- sweep(P, 2L, sqrt(diag(varma$cov)), "/")
     diag(P) <- sqrt(diag(varma$cov))
   } else {
     P <- diag(1, mpq[1], mpq[1])
@@ -543,9 +536,9 @@ sim_varma <- function(varma, n = 200, burn_in = 100, var_in_rows = FALSE) {
   # return simulated data in requested form
   if (burn_in > 0) { # if there is a burn-in perido
     if (var_in_rows) { # if vars are in rows
-      return(Y[, -(1:burn_in)])
+      return(Y[, -(1:burn_in), drop = FALSE])
     } else { # if vars are in columns
-      return(t(Y[, -(1:burn_in)]))
+      return(t(Y[, -(1:burn_in), drop = FALSE]))
     }
   } else { # if there is no burn-in period
     if (var_in_rows) { # if vars are in rows
@@ -714,141 +707,74 @@ autocov_an <- function(varma, maxlag = 10) {
 #' @param p order of the AR part.
 #' @param q order of the MA part.
 #' @param intercept logical, if TRUE, the model includes an intercept.
-#' @param maxdiff maximum difference between the coefficients of two consecutive iterations:
-#' it is used as a threshold to stop the iterations.
+#' @param maxdiff relative tolerance for changes in fitted regression errors.
+#' Convergence does not require a unique vector of AR and MA coefficients.
 #' @param maxit maximum number of iterations.
-#' @param r integer order of the first step VAR(r) model.
+#' @param r order of the pilot VAR. The default grows logarithmically with sample
+#' size and is capped to leave residual degrees of freedom.
 #' @param ret a character string indicating the type of output: "varma" or "regression".
 #'
 #' @returns If ret = "varma" a varma object, otherwise a list with the following elements:
-#' coefficients, matrix of residuals, fitted.values, effects, weights, rank,
-#' df.residual, qr, n_iter, res_cov.
+#' coefficients, regression residuals, fitted.values, effects, weights, rank,
+#' df.residual, qr, n_iter, converged, rows, and res_cov. A varma object instead
+#' stores recursive innovations computed from its final coefficients, with initial
+#' zeros marked by residuals_start, and convergence/iterations diagnostics.
 #'
 #' @export
 fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
-                          maxdiff = 1.0e-5, maxit = 100,
-                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          maxdiff = 1e-5, maxit = 100,
+                          r = .varma_long_order(as.matrix(Y), p, q, intercept),
                           ret = c("varma", "regression")) {
-  fn_name <- as.character(sys.call()[[1]]) # name of the function
-  # input controls
-  if (p < 0) stop("p must be non-negative")
-  if (q < 0) stop("q must be non-negative")
-  if (p == 0 & q == 0) stop("p = q = 0: no VARMA model specified")
+  fn_name <- "fit_varma_ihr"
+  Y <- .varma_data(Y, p, q)
   ret <- match.arg(ret)
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  # basic quantities and variable names
-  m <- ncol(Y)
-  n <- nrow(Y)
-  reg_names <- NULL
-  if (intercept) reg_names <- "cnst"
-  if (p > 0) reg_names <- c(reg_names, paste(paste0("y", 1:m), rep(1:p, each = m), sep = "_"))
-  if (q > 0) reg_names <- c(reg_names, paste(paste0("e", 1:m), rep(1:q, each = m), sep = "_"))
-  # pure VAR
-  if (q < 1) {
-    X <- if (intercept) cbind(1, stats::embed(Y, p+1)[, -(1:m)]) else stats::embed(Y, p+1)[, -(1:m)]
-    reg1 <- stats::lm.fit(X, Y[-(1:p),])
-    reg1$n_iter <- 0
-    dimnames(reg1$coefficients) <- list(
-      reg_names,
-      paste0("y", 1:m)
-    )
-    reg1$res_cov <- crossprod(reg1$residuals, reg1$residuals)/reg1$df.residual
-    if (ret == "regression") {
-      return(reg1)
-    } else {
-      estim <- t(reg1$coefficients)
-      if (intercept) {
-        cnst  <- estim[,  1]
-        estim <- estim[, -1]
-      } else {
-        cnst <- NULL
-      }
-      ar_array <- array(estim[, 1:(p*m)], c(m, m, p))
-      nobs <- prod(dim(reg1$residuals))
-      return(
-        structure(
-          list(
-            intercept = cnst,
-            ar = ar_array,
-            ma = NULL,
-            cov = reg1$res_cov,
-            estimation_method = fn_name,
-            loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-              (nrow(reg1$residuals) / 2) * determinant(reg1$res_cov, logarithm = TRUE)$modulus,
-            n = n,
-            nobs = nobs,
-            npar = length(reg1$coefficients),
-            y = Y,
-            residuals = reg1$residuals
-          ),
-          class = "varma"
-        )
-      )
+  maxit <- .varma_integer(maxit, "maxit")
+  if (length(maxdiff) != 1L || !is.finite(maxdiff) || maxdiff <= 0) stop("maxdiff must be positive")
+  m <- ncol(Y); n <- nrow(Y)
+  Ylag <- .varma_lags(Y, p)
+  reg_names <- c(if (intercept) "cnst",
+                 if (p) paste0(rep(paste0("y", seq_len(m)), p), "_", rep(seq_len(p), each=m)),
+                 if (q) paste0(rep(paste0("e", seq_len(m)), q), "_", rep(seq_len(q), each=m)))
+  if (q == 0L) {
+    rows <- seq.int(p+1L, n)
+    X <- if (intercept) cbind(1, Ylag[rows, , drop=FALSE]) else Ylag[rows, , drop=FALSE]
+    if (nrow(X) <= ncol(X)) stop("Not enough observations for the requested VAR")
+    reg <- .varma_regression(X, Y[rows, , drop=FALSE])
+    it <- 0L; converged <- TRUE
+  } else {
+    r <- .varma_integer(r, "r")
+    if (r < max(p,q) || n-r <= m*r + as.integer(intercept))
+      stop("r must be at least max(p,q) and leave residual degrees of freedom in the pilot VAR")
+    pilot_rows <- seq.int(r+1L,n)
+    XP <- .varma_lags(Y, r)[pilot_rows, , drop=FALSE]
+    if (intercept) XP <- cbind(1, XP)
+    pilot <- .varma_regression(XP, Y[pilot_rows, , drop=FALSE])
+    E <- matrix(0,n,m); E[pilot_rows, ] <- pilot$residuals
+    start <- r + max(p,q)
+    if (n-start <= m*(p+q)+as.integer(intercept)) stop("Not enough observations after pilot trimming")
+    rows <- seq.int(start+1L,n)
+    converged <- FALSE
+    response <- Y[rows,,drop=FALSE]
+    X <- matrix(0,length(rows),as.integer(intercept)+m*(p+q))
+    if (intercept) X[,1L] <- 1
+    if (p) X[,as.integer(intercept)+seq_len(m*p)] <- Ylag[rows,,drop=FALSE]
+    for (it in seq_len(maxit)) {
+      for (j in seq_len(q))
+        X[,as.integer(intercept)+m*p+(j-1L)*m+seq_len(m)] <- E[rows-j,,drop=FALSE]
+      reg <- .varma_regression(X,response)
+      # Compare fitted errors, which remain defined when coefficients are aliased.
+      change <- max(abs(reg$residuals-E[rows, , drop=FALSE]))/(1+max(abs(E[rows, , drop=FALSE])))
+      E[rows, ] <- reg$residuals
+      if (it > 1L && change < maxdiff) { converged <- TRUE; break }
     }
   }
-  # initial VAR with order = (p+q)
-  X <- if (intercept) cbind(1, stats::embed(Y, r+1)[, -(1:m)]) else stats::embed(Y, r+1)[, -(1:m)]
-  m1 <- stats::lm.fit(X, Y[-(1:r),])
-  E <- rbind(matrix(0, r, m), m1$residuals)
-  # main iterations
-  for (it in 1:maxit) {
-    Ylag <- if (p > 0) stats::embed(Y, p+1)[, -(1:m)] else NULL
-    Elag <- rbind(matrix(0, q, m*q), stats::embed(E, q+1)[, -(1:m)])[(p+1):n, ]
-    if (intercept) X = cbind(1, Ylag, Elag) else X = cbind(Ylag, Elag)
-    if (it > 1) reg0 <- reg1
-    reg1 <- stats::lm.fit(X, Y[(p+1):n, ])
-    if (it > 1) {
-      if (max(abs(reg1$coefficients - reg0$coefficients), na.rm = TRUE) < maxdiff) break
-    }
-    reg0 <- reg1
-    E <- rbind(matrix(0, p, m), reg1$residuals)
-  }
-  reg1$n_iter <- it
-  dimnames(reg1$coefficients) <- list(
-    reg_names,
-    paste0("y", 1:m)
-  )
-  reg1$res_cov <- crossprod(reg1$residuals, reg1$residuals)/reg1$df.residual
-
-  estim <- t(reg1$coefficients)
-  if (intercept) {
-    cnst  <- estim[,  1]
-    estim <- estim[, -1]
-  } else {
-    cnst <- NULL
-  }
-  if (p > 0) {
-    ar_array <- array(estim[, 1:(p*m)], c(m, m, p))
-  } else {
-    ar_array <- NULL
-  }
-  if (q > 0) {
-    ma_array <- array(estim[, (p*m+1):(p*m+q*m)], c(m, m, q))
-  } else {
-    ma_array <- NULL
-  }
-  if (ret == "varma") {
-    nobs <- prod(dim(reg1$residuals))
-    structure(
-      list(
-        intercept = cnst,
-        ar = ar_array,
-        ma = ma_array,
-        cov = reg1$res_cov,
-        estimation_method = fn_name,
-        loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-          (nrow(reg1$residuals) / 2) * determinant(reg1$res_cov, logarithm = TRUE)$modulus,
-        n = nrow(Y),
-        nobs = nobs,
-        npar = length(reg1$coefficients),
-        y = Y,
-        residuals = reg1$residuals
-      ),
-      class = "varma"
-    )
-  } else {
-    reg1
-  }
+  dimnames(reg$coefficients) <- list(reg_names, colnames(Y))
+  reg$n_iter <- it; reg$converged <- converged; reg$rows <- rows
+  reg$res_cov <- crossprod(reg$residuals)/nrow(reg$residuals)
+  if (ret == "regression") { reg$design <- X; return(reg) }
+  fit <- .varma_from_coefficients(reg$coefficients,p,q,intercept,m)
+  .varma_finish(fit,Y,fn_name,length(reg$coefficients),rank=reg$rank,
+                convergence=if (converged) 0L else 1L,iterations=it)
 }
 
 
@@ -858,7 +784,8 @@ fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @param p order of the AR part.
 #' @param q order of the MA part.
 #' @param intercept boolean, if TRUE, the model will include an intercept.
-#' @param lambda positive numeric regularization parameter.
+#' @param lambda NULL for a cross-validated path, a non-negative scalar for a fixed
+#' penalty, or a vector of non-negative candidate penalties for cross-validation.
 #' @param alpha value in the interval [0, 1]; 1 for pure LASSO and 0 for pure RIDGE.
 #' @param relax logical, if FALSE the classical elastic net is used, if TRUE (default)
 #' the estimations and cross validation are done also using regression coefficients
@@ -869,9 +796,7 @@ fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' `relax = TRUE`. The default is 0, corresponding to Post-LASSO OLS.
 #' @param sur logical, if TRUE a final seemingly unrelated regressions
 #' step is computed, otherwise the equation by equation estimate is provided.
-#' @param maxdiff maximum difference between the coefficients of two consecutive
-#' iterations in the first step based on `fit_varma_ihr`:
-#' it is used as a threshold to stop the iterations.
+#' @param maxdiff convergence tolerance passed to `fit_varma_ihr`.
 #' @param maxit maximum number of iterations to be used in the first step
 #' based on `fit_varma_ihr`.
 #' @param r integer order of the first step VAR(r) model used in `fit_varma_ihr`.
@@ -879,101 +804,72 @@ fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @param parallel TRUE if parallelization is required
 #' @param n_cores integer number of cores to use, if parallel = TRUE
 #'
-#' @returns If ret = "varma" a varma object, otherwise a list with the results of
-#' cv.glmnet for each response variable.
+#' @returns A varma object with refreshed recursive innovations and covariance, or
+#' a list of glmnet fits (fixed lambda) or cv.glmnet fits (a penalty path).
+#' SUR uses the selected support. The parameter count includes innovation covariance
+#' parameters and is a nominal count, not a general effective-df formula for penalized fits.
 #' @importFrom stats coef
 #' @export
 fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
-                          lambda = NULL, alpha = 1,
-                          relax = TRUE, gamma = 0,
-                          sur = TRUE,
-                          maxdiff = 1.0e-5, maxit = 100,
-                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
-                          parallel = FALSE,
-                          n_cores = NULL,
+                          lambda = NULL, alpha = 1, relax = TRUE, gamma = 0,
+                          sur = TRUE, maxdiff = 1e-5, maxit = 100,
+                          r = .varma_long_order(as.matrix(Y), p, q, intercept),
+                          parallel = FALSE, n_cores = NULL,
                           ret = c("varma", "regression")) {
-  fn_name <- as.character(sys.call()[[1]]) # function name
-  # input controls
-  if (p < 0) stop("p must be non-negative")
-  if (q < 0) stop("q must be non-negative")
-  if (p == 0 & q == 0) stop("p = q = 0: no VARMA model specified")
-  ret <- match.arg(ret)
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  # basic quantities and variable names
+  Y <- .varma_data(Y,p,q); ret <- match.arg(ret)
   m <- ncol(Y)
-  n <- nrow(Y)
-  # calling ihr for first step
-  ihr <-fit_varma_ihr(Y, p = p, q = q, intercept = intercept,
-                      maxdiff = maxdiff, maxit = maxit,
-                      r = r, ret = "regression")
-  regreg <- vector("list", m)
-  X <- if (intercept) qr.X(ihr$qr)[,-1] else qr.X(ihr$qr)
-  for (i in 1:m) {
-    regreg[[i]] <- glmnet::cv.glmnet(x = X,
-                                     y = if (p>0) Y[-(1:p), i] else Y[, i],
-                                     family = "gaussian",
-                                     alpha = alpha,
-                                     intercept = intercept,
-                                     relax = relax,
-                                     gamma = gamma)
+  ihr <- fit_varma_ihr(Y,p,q,intercept,maxdiff,maxit,r,ret="regression")
+  X <- ihr$design
+  if (intercept) X <- X[, -1L, drop=FALSE]
+  YY <- Y[ihr$rows, , drop=FALSE]
+  fixed <- !is.null(lambda) && length(lambda)==1L
+  if (!is.null(lambda) && (!length(lambda) || any(!is.finite(lambda)) || any(lambda < 0)))
+    stop("lambda must contain non-negative finite values")
+  if (fixed && relax && length(gamma)!=1L) stop("A fixed lambda requires a scalar gamma")
+  Xnet <- if (ncol(X)==1L) cbind(X,0) else X
+  fit_equation <- function(i) {
+    args <- list(x=Xnet,y=YY[,i],family="gaussian",lambda=lambda,
+                 alpha=alpha,intercept=intercept,relax=relax)
+    # glmnet 4.1-10 drops coefficient dimensions on a one-lambda relaxed path.
+    # Retain two path points, but always extract the user's exact fixed lambda.
+    if (fixed && relax) args$lambda <- c(lambda+max(1e-8,lambda*1e-6),lambda)
+    if (!fixed) args$gamma <- gamma
+    # glmnet's relaxed refit re-evaluates its stored call in another frame.
+    # Supply values, so it does not depend on symbols in this local closure.
+    do.call(if (fixed) glmnet::glmnet else glmnet::cv.glmnet,args)
   }
-  coeff <- sapply(regreg, function(reg) as.numeric(coef(reg)))
-  if (!intercept) coeff <- coeff[-1, ] # glmnet returns zero coeff also for the missing intercept
+  if (parallel) {
+    if (is.null(n_cores)) n_cores <- max(1L, parallel::detectCores()-1L)
+    n_cores <- .varma_integer(n_cores,"n_cores")
+    old_plan <- future::plan(); on.exit(future::plan(old_plan),add=TRUE)
+    future::plan(future::multisession,workers=n_cores)
+    regreg <- future.apply::future_lapply(seq_len(m),fit_equation,future.seed=TRUE)
+  } else regreg <- lapply(seq_len(m),fit_equation)
+  if (ret == "regression") return(regreg)
+  coeff <- do.call(cbind,lapply(regreg,function(reg) {
+    cc <- if (fixed && relax) stats::coef(reg,s=lambda,gamma=gamma) else
+      if (fixed) stats::coef(reg,s=lambda) else stats::coef(reg)
+    as.numeric(cc)[seq_len(ncol(X)+1L)]
+  }))
+  if (!intercept) coeff <- coeff[-1L, , drop=FALSE]
   dimnames(coeff) <- dimnames(ihr$coefficients)
-  fitted <- sapply(regreg, function(reg) predict(reg, newx = X))
-  resid  <- if (p>0) Y[-(1:p), ] - fitted else Y - fitted
-  res_cov <- crossprod(resid)/nrow(X)
-  nobs <- sum(!is.na(Y))
-  estim <- t(coeff)
+  XX <- if (intercept) cbind(1,X) else X
+  resid <- YY-XX %*% coeff
   if (sur) {
-    not_zero <- (estim != 0)
-    if (intercept) X <- cbind(1, X)
-    ylist <- lapply(1:m, function(i) if (p > 0) Y[-(1:p), i, drop = FALSE] else Y[, i, drop = FALSE])
-    xlist <- lapply(1:m, function(i) X[, not_zero[i, ], drop = FALSE])
-    if (all(vapply(xlist, ncol, integer(1L)) > 0L)) {
-      beta        <- sur_cpp(xlist, ylist, res_cov)
-      coeff[t(not_zero)] <- beta
-    }
-    estim <- t(coeff)
+    active <- coeff != 0
+    if (intercept) active[1L, ] <- TRUE
+    xlist <- lapply(seq_len(m),function(i) XX[,active[,i],drop=FALSE])
+    ylist <- lapply(seq_len(m),function(i) YY[,i,drop=FALSE])
+    if (any(active)) coeff[active] <- sur_cpp(xlist,ylist,crossprod(resid)/nrow(resid))
   }
-  if (intercept) {
-    cnst  <- estim[,  1]
-    estim <- estim[, -1]
-  } else {
-    cnst <- NULL
-  }
-  if (p > 0) {
-    ar_array <- array(estim[, 1:(p*m)], c(m, m, p))
-  } else {
-    ar_array <- NULL
-  }
-  if (q > 0) {
-    ma_array <- array(estim[, (p*m+1):(p*m+q*m)], c(m, m, q))
-  } else {
-    ma_array <- NULL
-  }
-  if (ret == "varma") {
-    structure(
-      list(
-        intercept = cnst,
-        ar = ar_array,
-        ma = ma_array,
-        cov = res_cov,
-        estimation_method = fn_name,
-        loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-          (nrow(resid) / 2) * determinant(res_cov, logarithm = TRUE)$modulus,
-        n = nrow(Y),
-        nobs = nobs,
-        npar = sum(estim != 0) + if (intercept) m else 0,
-        y = Y,
-        residuals = resid
-      ),
-      class = "varma"
-    )
-  } else {
-    regreg
-  }
+  fit <- .varma_from_coefficients(coeff,p,q,intercept,m)
+  fit <- .varma_finish(fit,Y,"fit_varma_net",sum(coeff != 0),
+                       convergence=if (ihr$converged) 0L else 1L,iterations=ihr$n_iter)
+  fit$regression_residuals <- YY-XX %*% coeff
+  fit$regression_rows <- ihr$rows
+  fit
 }
+
 
 #' VARMA estimation using Maximum-Likelihood in State-Space form using KFAS
 #'
@@ -981,125 +877,40 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
 #' @param p order of the AR part.
 #' @param q order of the MA part.
 #' @param intercept logical, if TRUE, the model will include an intercept.
-#' @param maxit integer, maximum number of iterations for the iterated Hannan-Rissanen
-#' estimator, which is used for providing starting values for numerical MLE and for
-#' computing the marginal covariance matrix of the VARMA in state-space form, used
-#' for initializing the Kalman filter.
+#' @param maxit maximum iterations of the pilot Hannan--Rissanen estimator.
+#' @param control list passed to stats::optim; control$maxit controls likelihood iterations.
+#' @details The Gaussian likelihood uses a stationary initial covariance recomputed
+#' at each candidate. Optimisation is restricted to stable AR and invertible MA
+#' polynomials. The returned optim.out records numerical convergence; a local optimum
+#' is not a guarantee of global maximisation. No echelon restrictions are imposed.
 #' @param ret a character string indicating the type of output: "varma" or
-#' "kfas" (a KFAS' SSModel object).
+#' "kfas" (a list with model, the fitted SSModel, and optim.out).
 #'
-#' @returns If ret = "varma" a varma object, otherwise a SSModel object from the KFAS package.
+#' @returns A varma object, or a list containing model and optim.out. Stored errors
+#' are multivariate prediction errors from KFAS::mvInnovations.
 #'
 #' @importFrom KFAS SSMcustom SSModel fitSSM KFS
 #' @export
-fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
-                           maxit = 100, ret = c("varma", "kfas")) {
-  fn_name <- as.character(sys.call()[[1]]) # function name
-  # input controls
+fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
+                           ret = c("varma", "kfas"), control = list()) {
   ret <- match.arg(ret)
-  # for initial values (see below)
-  ih <- fit_varma_ihr(Y, p, q, intercept, maxit = maxit)
-  ss <- varma_to_ss(ih)
-  n <- nrow(Y)
-  m <- ncol(Y)
-  r <- max(p, q+1)
-  mr <- m*r
-  # matrices for the ss form
-  mT <- ss$T
-  mR <- ss$R
-  mQ <- ss$Q
-  mZ <- ss$Z
-  a1 <- matrix(0, nrow(mT), 1)
-  P1 <- solve_dlyap_iter(Matrix::Matrix(mT, sparse = TRUE), mR %*% tcrossprod(mQ, mR))
-  P1inf <- matrix(0, mr, mr)
-  mod <- SSModel(
-    Y ~ 0 + SSMcustom(Z = mZ, T = mT, R = mR, Q = mQ, a1 = a1,
-                      P1 = P1, P1inf = P1inf, index = 1:m),
-    H = matrix(0, m, m)
-  )
-  # update function
-  # order of pars:
-  # m intercepts
-  # m*m*p AR coefficients
-  # m*m*q MA coefficients
-  # m*(m+1)/2 elements of chol(cov_eps)
-  updt <- function(pars, model) {
-    if (intercept) {
-      model$y <- Y - rep(pars[1:m], each = n)
-      pars <- pars[-(1:m)]
-    }
-    if (p > 0) model$T[1:(m*p), 1:m, 1] <- pars[1:(m*m*p)]
-    if (q > 0) model$R[(m+1):(m+m*q), 1:m, 1] <- pars[(m*m*p+1):(m*m*p+m*m*q)]
-    Pt <- matrix(0, m, m)
-    Pt[upper.tri(Pt, TRUE)] <- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
-    model$Q[,, 1] <- crossprod(Pt)
-    model
-  }
-  # initial values from fit_varma_ihr
-  if (intercept) { # intercepts
-    inits <- ih$intercept
-  } else {
-    inits <- NULL
-  }
-  if (p > 0) { # VAR part
-    mPhi <- matrix(0, p*m, m)
-    for (i in 1:p) mPhi[((i-1)*m + 1):(i*m), 1:m] <- ih$ar[,,i] # t(ih$coefficients)[1:m, ((i-1)*m + 1):(i*m)]
-    inits <- c(inits, as.numeric(mPhi))
-  }
-  if (q > 0) { # VMA part
-    mTheta <- matrix(0, q*m, m)
-    for (i in 1:q) mTheta[((i-1)*m + 1):(i*m), 1:m] <- ih$ma[,,i] # t(ih$coefficients)[1:m, ((i-1)*m + 1):(i*m)]
-    inits <- c(inits, as.numeric(mTheta))
-  }
-  # residual covariance matrix part
-  inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
-  # estimates
-  ssfit <- fitSSM(mod, inits, updt, method = "BFGS")
-  ssmod <- updt(ssfit$optim.out$par, ssfit$model)
-  ssflt <- KFS(ssmod, filtering = "state", smoothing = "none")
-  if (ret == "kfas") return(ssfit)
-  if (intercept) cnst <- ssfit$optim.out$par[1:m] else cnst <- NULL
-  if (p > 0) {
-    array_ar <- array(0, c(m, m, p))
-    for (i in 1:p) array_ar[,,i] <- ssfit$model$T[((i-1)*m+1):(i*m), 1:m, 1]
-  } else array_ar <- NULL
-    if (q > 0) {
-    array_ma <- array(0, c(m, m, q))
-    for (i in 1:q) array_ma[,,i] <- ssfit$model$R[(i*m+1):((i+1)*m), 1:m, 1]
-  } else array_ma <- NULL
-  structure(
-    list(
-      mean = cnst,
-      ar = array_ar,
-      ma = array_ma,
-      cov = ssfit$model$Q[,,1],
-      estimation_method = fn_name,
-      loglik = logLik(ssfit$model),
-      n = n,
-      nobs = sum(!is.na(Y)),
-      npars = length(ssfit$optim.out$par),
-      y = Y,
-      residuals = ssflt$v,
-      state_pred_mean = ssflt$a[n+1, ],
-      state_pred_cov  = ssflt$P[,, n+1],
-      transition_matrix = ssmod$T[,,1],
-      disturbance_cov = ssmod$R[,,1] %*% tcrossprod(ssmod$Q[,,1], ssmod$R[,,1])
-    ),
-    class = "varma"
-  )
+  out <- .varma_ml(Y,p,q,intercept,maxit,control,"kfas")
+  if (ret == "varma") out$fit else out$raw
 }
 
 
-#' VARMA estimation using Maximum-Likelihoo in State-Space form (FKF.SP)
+#' VARMA estimation using maximum likelihood in state-space form (FKF.SP)
 #'
 #' @param Y a (n x m) matrix with the time series.
 #' @param p order of the AR part.
 #' @param q order of the MA part.
 #' @param intercept boolean, if TRUE, the model will include an intercept.
-#' @param maxit integer, maximum number of iterations for the iterated Hannan-Rissanen
-#' estimator, which is used for providing starting values for numerical MLE and for
-#' computing the marginal covariance matrix of the VARMA in state-space form, used
-#' for initializing the Kalman filter.
+#' @param maxit maximum iterations of the pilot Hannan--Rissanen estimator.
+#' @param control list passed to stats::optim; control$maxit controls likelihood iterations.
+#' @details The Gaussian likelihood uses a stationary initial covariance recomputed
+#' at each candidate. Optimisation is restricted to stable AR and invertible MA
+#' polynomials. The returned optim.out records numerical convergence; a local optimum
+#' is not a guarantee of global maximisation. No echelon restrictions are imposed.
 #' @param ret a character string indicating the type of output: "varma" (default)
 #' or "ss" (a list with the state-space form matrices and fkf function output).
 #'
@@ -1107,111 +918,13 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' according to the choice of the `ret` parameter.
 #'
 #' @export
-fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
-                          maxit= 100, ret = c("varma", "ss")) {
+fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
+                           ret = c("varma", "ss"), control = list()) {
   ret <- match.arg(ret)
-  fn_name <- as.character(sys.call()[[1]]) # function name
-  # for initial values (see below)
-  ih <- fit_varma_ihr(Y, p, q, intercept, maxit = maxit)
-  n <- nrow(Y)
-  m <- ncol(Y)
-  r <- max(p, q+1)
-  # matrices for the ss form
-  mT <- matrix(0, m*r, m*r)
-  mr <- m*r
-  if (r > 1) diag(mT[1:(mr - m), (m+1):mr]) <- 1
-  mR <- rbind(diag(m), matrix(0, mr-m, m))
-  mQ <- ih$cov
-  mZ <- cbind(diag(1, m, m), matrix(0, m, mr -m))
-  a1 <- numeric(mr)
-  mHHt <- mR %*% tcrossprod(mQ, mR)
-  mGGt <- rep(0, m)
-  P1 <- solve_dlyap_iter(Matrix::Matrix(mT, sparse = TRUE), mHHt)
-  Pt <- matrix(0, m, m)
-  ct <- matrix(0, m, 1)
-  y <- t(Y)
-  obj <- function(pars) {
-    if (intercept) {
-      ct[] <- matrix(pars[(1:m)], m, 1)
-      pars <- pars[-(1:m)]
-    }
-    if (p > 0) mT[1:(m*p), 1:m] <- pars[1:(m*m*p)]
-    if (q > 0) mR[(m+1):(m+m*q), 1:m] <- pars[(m*m*p+1):(m*m*p+m*m*q)]
-    Pt[upper.tri(Pt, TRUE)] <- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
-    mQ[] <- crossprod(Pt)
-    -FKF.SP::fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
-            Tt = mT, Zt = mZ, HHt = mR %*% tcrossprod(mQ, mR), GGt = mGGt, yt = y)
-  }
-  final_run <- function(pars) {
-    if (intercept) {
-      ct[] <- matrix(pars[(1:m)], m, 1)
-      pars <- pars[-(1:m)]
-    }
-    if (p > 0) mT[1:(m*p), 1:m] <- pars[1:(m*m*p)]
-    if (q > 0) mR[(m+1):(m+m*q), 1:m] <- pars[(m*m*p+1):(m*m*p+m*m*q)]
-    Pt[upper.tri(Pt, TRUE)] <- pars[(m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)]
-    mQ[] <- crossprod(Pt)
-    HH = mR %*% tcrossprod(mQ, mR)
-    c(FKF.SP::fkf.SP(a0 = a1, P0 = P1, dt = matrix(0, dim(mT)[1], 1), ct = ct,
-           Tt = mT, Zt = mZ, HHt = HH, GGt = mGGt, yt = y,
-           verbose = TRUE),
-      list(HH = HH, R = mR, Q = mQ)
-    )
-  }
-  # initial values from fit_varma_ihr
-  if (intercept) { # intercepts
-    inits <- colMeans(Y)
-  } else {
-    inits <- NULL
-  }
-  if (p > 0) { # VAR part
-    mPhi <- matrix(0, p*m, m)
-    for (i in 1:p) mPhi[((i-1)*m + 1):(i*m), 1:m] <- ih$ar[,,i] # t(ih$coefficients)[1:m, ((i-1)*m + 1):(i*m)]
-    inits <- c(inits, as.numeric(mPhi))
-  }
-  if (q > 0) { # VMA part
-    mTheta <- matrix(0, q*m, m)
-    for (i in 1:q) mTheta[((i-1)*m + 1):(i*m), 1:m] <- ih$ma[,,i] # t(ih$coefficients)[1:m, ((i-1)*m + 1):(i*m)]
-    inits <- c(inits, as.numeric(mTheta))
-  }
-  # residual covariance matrix part
-  inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
-  # estimates
-  optout <- stats::optim(inits, obj, method = "BFGS")
-  ssout  <- final_run(optout$par)
-  if (ret == "ss") {
-    ssout
-  } else {
-    if (intercept) cnst <- optout$par[1:m] else cnst <- NULL
-    if (p > 0) {
-      array_ar <- array(0, c(m, m, p))
-      for (i in 1:p) array_ar[,,i] <- ssout$Tt[((i-1)*m+1):(i*m), 1:m, 1]
-    } else array_ar <- NULL
-    if (q > 0) {
-      array_ma <- array(0, c(m, m, q))
-      for (i in 1:q) array_ma[,,i] <- ssout$R[(i*m+1):((i+1)*m), 1:m]
-    } else array_ma <- NULL
-    structure(
-      list(
-        mean = cnst,
-        ar = array_ar,
-        ma = array_ma,
-        cov = ssout$Q,
-        estimation_method = fn_name,
-        loglik = -optout$value,
-        nobs = sum(!is.na(Y)),
-        y = Y,
-        npar = length(optout$par),
-        residuals = t(ssout$v),
-        state_pred_mean = ssout$at[, n+1],
-        state_pred_cov  = ssout$Pt[,, n+1],
-        transition_matrix = ssout$Tt[,,1],
-        disturbance_cov = ssout$HH
-      ),
-      class = "varma"
-    )
-  }
+  out <- .varma_ml(Y,p,q,intercept,maxit,control,"fkf")
+  if (ret == "varma") out$fit else out$raw
 }
+
 
 #' Fit a VARMA(p,q) Model using Sparse Kalman Filter
 #'
@@ -1222,139 +935,27 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @param p the autoregressive order.
 #' @param q the moving average order.
 #' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
-#' @param maxit integer, maximum number of iterations for the iterated Hannan-Rissanen
-#' estimator, which is used for providing starting values for numerical MLE and for
-#' computing the marginal covariance matrix of the VARMA in state-space form, used
-#' for initializing the Kalman filter
+#' @param maxit maximum iterations of the pilot Hannan--Rissanen estimator.
+#' @param control list passed to stats::optim; control$maxit controls likelihood iterations.
+#' @details The Gaussian likelihood uses a stationary initial covariance recomputed
+#' at each candidate. Optimisation is restricted to stable AR and invertible MA
+#' polynomials. The returned optim.out records numerical convergence; a local optimum
+#' is not a guarantee of global maximisation. No echelon restrictions are imposed.
 #' @return A varma object.
 #' @export
-fit_varma_skf <- function(Y, p, q, intercept = TRUE, maxit = 100) {
-  fn_name <- as.character(sys.call()[[1]]) # function name
-  Yt <- t(Y)
-  # for initial values use iterated Hannan-Rissanen estimates
-  ih <- fit_varma_ihr(Y, p, q, intercept, maxit = maxit)
-  ss <- varma_to_ss(ih)
-  n <- nrow(Y)
-  m <- ncol(Y)
-  r <- max(p, q+1)
-  # matrices for the ss form
-  mT <- Matrix::Matrix(ss$T, sparse = TRUE) # sparse T
-  mR <- Matrix::Matrix(ss$R, sparse = TRUE) # sparse R
-  mQ <- ss$Q
-  a1 <- matrix(0, nrow(mT), 1)
-  P1 <- solve_dlyap_iter(mT, as.matrix(mR %*% Matrix::tcrossprod(mQ, mR)))
-  P1 <- (P1 + t(P1))/2
-  Pt <- matrix(0, m, m)
-  # Objective function
-  ## order of pars:
-  ## m intercepts
-  ## m*m*p AR coefficients
-  ## m*m*q MA coefficients
-  ## m*(m+1)/2 elements of chol(cov_eps)
-  ncall <- 0
-  y <- Yt
-  one_to_m <- 1:m
-  one_to_mp <- 1:(m*p)
-  one_to_mmp <- 1:(m*m*p)
-  mplus1_to_mmq <- (m+1):(m+m*q)
-  mmpplus1_to_mmpplusmmq <- (m*m*p+1):(m*m*p+m*m*q)
-  mmpplusmmqplus1_to_last<- (m*m*p+m*m*q+1):(m*m*p+m*m*q+m*(m+1)/2)
-  obj <- function(pars) {
-    if (intercept) {
-      y <- Yt - pars[one_to_m]
-      pars <- pars[-one_to_m]
-    }
-    if (p > 0) mT[one_to_mp, one_to_m] <- pars[one_to_mmp]
-    if (q > 0) mR[mplus1_to_mmq, one_to_m] <- pars[mmpplus1_to_mmpplusmmq]
-    Pt[upper.tri(Pt, TRUE)] <- pars[mmpplusmmqplus1_to_last]
-    mQ[] <- crossprod(Pt)
-    -kalmanLogLik(mT, mR, mQ, a1, P1, y)
-  }
-  final_run <- function(pars) {
-    if (intercept) {
-      y <- Yt - pars[one_to_m]
-      pars <- pars[-one_to_m]
-    }
-    if (p > 0) mT[one_to_mp, one_to_m] <- pars[one_to_mmp]
-    if (q > 0) mR[mplus1_to_mmq, one_to_m] <- pars[mmpplus1_to_mmpplusmmq]
-    Pt[upper.tri(Pt, TRUE)] <- pars[mmpplusmmqplus1_to_last]
-    mQ[] <- crossprod(Pt)
-    kalman(mT,
-           mR,
-           mQ,
-           mat_at,
-           array_Pt,
-           y,
-           mat_v,
-           array_F)
-  }
-
-  # initial values from fit_varma_ihr
-  if (intercept) { # intercepts
-    inits <- colMeans(Y)
-  } else {
-    inits <- NULL
-  }
-  if (p > 0) { # VAR part
-    mPhi <- matrix(0, p*m, m)
-    for (i in 1:p) mPhi[((i-1)*m + 1):(i*m), 1:m] <- ih$ar[,,i] # t(ih$coefficients)[1:m, ((i-1)*m + 1):(i*m)]
-    inits <- c(inits, as.numeric(mPhi))
-  }
-  if (q > 0) { # VMA part
-    mTheta <- matrix(0, q*m, m)
-    for (i in 1:q) mTheta[((i-1)*m + 1):(i*m), 1:m] <- ih$ma[,,i] # t(ih$coefficients)[1:m, ((i-1)*m + 1):(i*m)]
-    inits <- c(inits, as.numeric(mTheta))
-  }
-  # residual covariance matrix part
-  inits <- c(inits, as.numeric(chol(ih$cov)[upper.tri(ih$cov, TRUE)]))
-  # estimates
-  ssfit <- stats::optim(inits, obj, method = "BFGS")
-  mat_at <- matrix(a1, nrow(mT), n+1)
-  array_Pt <- array(P1, c(nrow(mT), nrow(mT), n+1))
-  mat_v <- matrix(0, m, n)
-  array_F <- array(0, c(m, m, n))
-  fin_log_lik <- final_run(ssfit$par)
-  pars <- ssfit$par
-  if (intercept) {
-    cnst <- pars[1:m]
-    pars <- pars[-(1:m)]
-  } else cnst <- NULL
-  if (p > 0) {
-    A <- matrix(pars[1:(m*m*p)], m*p, m)
-    array_ar <- array(0, c(m, m, p))
-    for (i in 1:p) array_ar[,,i] <- A[((i-1)*m+1):(i*m), ]
-  } else array_ar <- NULL
-  if (q > 0) {
-    M <- matrix(pars[(m*m*p+1):(m*m*p+m*m*q)], m*q, m)
-    array_ma <- array(0, c(m, m, q))
-    for (i in 1:q) array_ma[,,i] <- M[((i-1)*m+1):(i*m), ]
-  } else array_ma <- NULL
-  structure(
-    list(
-      mean = cnst,
-      ar = array_ar,
-      ma = array_ma,
-      cov = mQ,
-      estimation_method = fn_name,
-      loglik = fin_log_lik,
-      n = n,
-      nobs = sum(!is.na(Y)),
-      npar = length(ssfit$par),
-      y = Y,
-      residuals = t(mat_v),
-      state_pred_mean = mat_at[, n+1],
-      state_pred_cov  = array_Pt[,, n+1],
-      transition_matrix = as.matrix(mT),
-      disturbance_cov = as.matrix(mR %*% Matrix::tcrossprod(mQ, mR))
-    ),
-    class = "varma"
-  )
+fit_varma_skf <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
+                           control = list()) {
+  out <- .varma_ml(Y,p,q,intercept,maxit,control,"skf")
+  out$fit
 }
+
 
 #' Fit a VARMA(p,q) Model using the iterated GLS method
 #'
-#' Estimates the parameters of a VARMA(p,q) model by maximizing the
-#' likelihood iterating GLS step as in Reinsel, Basu and Yap (1992).
+#' Fits a conditional Gaussian criterion using covariance-weighted Gauss--Newton
+#' steps and a backtracking line search. The full innovation derivative retains
+#' cross-equation terms and the order of matrix multiplication. The intercept is
+#' estimated jointly. The returned convergence code is zero when tolerance is met.
 #'
 #' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
 #' @param p the autoregressive order.
@@ -1368,187 +969,82 @@ fit_varma_skf <- function(Y, p, q, intercept = TRUE, maxit = 100) {
 #' @export
 fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
                           maxit = 500, tol = 1e-5,
-                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          r = .varma_long_order(as.matrix(Y),p,q,intercept),
                           verbose = FALSE) {
-  fn_name <- as.character(sys.call()[[1]])
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  n <- nrow(Y)
-  m <- ncol(Y)
-  if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
-  # if no VMA part, call ihr, that returns the pure VAR regression
-  if (q < 1) return(fit_varma_ihr(Y, p, q, intercept))
-
-  # When intercept = TRUE, we work on centered Y.
-  if (intercept) {
-    Y_mean <- colMeans(Y)
-    Y_eff  <- Y - rep(Y_mean, each = n) # sweep(Y, 2L, Y_mean, "-")
-  } else {
-    Y_mean <- NULL
-    Y_eff  <- Y
+  Y <- .varma_data(Y,p,q); maxit <- .varma_integer(maxit,"maxit")
+  if (!is.finite(tol) || length(tol)!=1L || tol<=0) stop("tol must be positive")
+  n <- nrow(Y); m <- ncol(Y)
+  if (!q) {
+    out <- fit_varma_ihr(Y,p,0,intercept)
+    out$estimation_method <- "fit_varma_rby"
+    return(out)
   }
-
-  # --- STEP 1: Hannan-Rissanen ---
-  X <- stats::embed(Y_eff, r+1)[, -seq_len(m)]
-  hr_reg <- stats::lm.fit(x = X, y = Y_eff[-seq_len(r), ])
-  u_long <- hr_reg$resid
-
-  n_start_hr <- r + max(p, q) + 1
-  Y_hr <- Y_eff[n_start_hr:n, , drop = FALSE]
-
-  X_hr <- NULL
-  for (i in seq_len(p)) {
-    X_hr <- cbind(X_hr, Y_eff[(n_start_hr - i):(n - i), , drop = FALSE])
+  pilot <- fit_varma_ihr(Y,p,q,intercept,maxit=1L,r=r,ret="regression")
+  fit <- .varma_from_coefficients(pilot$coefficients,p,q,intercept,m)
+  fit$cov <- pilot$res_cov
+  for (part in c("ar","ma")) if (length(fit[[part]])) {
+    for (i in seq_len(1000L)) {
+      if (all(Mod(inv_roots(fit,part)[[part]]) < .98)) break
+      fit[[part]] <- fit[[part]]*.9
+    }
   }
-  for (j in seq_len(q)) {
-    lag_start <- (n_start_hr - j) - r
-    lag_end   <- (n   - j) - r
-    X_hr <- cbind(X_hr, u_long[lag_start:lag_end, , drop = FALSE])
+  aa <- if (p) fit$ar else array(0,c(m,m,0))
+  bb <- fit$ma; cc <- if (intercept) fit$intercept else numeric(0)
+  width <- m*(p+q)+as.integer(intercept)
+  step <- function(a,b,c) rby_optimization_step(Y,a,b,p,q,intercept,c)
+  res <- step(aa,bb,cc)
+  objective <- function(e) {
+    e <- e[seq.int(max(p,q)+1L,n),,drop=FALSE]
+    .varma_gaussian_ll(e,crossprod(e)/nrow(e))
   }
-
-  B_hat <- stats::lm.fit(y = Y_hr, x = X_hr)$coefficients
-
-  Phi_arr   <- array(0, dim = c(m, m, p))
-  Theta_arr <- array(0, dim = c(m, m, q))
-
-  idx <- 0L
-  for (i in 1:p) {
-    Phi_arr[, , i] <- t(B_hat[(idx + 1L):(idx + m), , drop = FALSE])
-    idx <- idx + m
-  }
-  for (j in 1:q) {
-    Theta_arr[, , j] <- t(B_hat[(idx + 1L):(idx + m), , drop = FALSE])
-    idx <- idx + m
-  }
-
-  # --- STEP 2: Gauss-Newton with backtracking line search ---
-  # Layout rows of Delta (n_reg x m, n_reg = m*p + m*q):
-  #   Rows 1..m*p        : corrections for Phi_1..Phi_p
-  #   Rows m*p+1..m*(p+q): corrections for Theta_1..Theta_q
-  #
-  # t_start (same as C++): first row with valid resid (0-indexed in C++,
-  # so first valid row in R is t_start + 1).
-  t_start <- max(p, q)
-
-  # Vompute res at initial values (out of loop to reuse it)
-  res <- rby_optimization_step(Y_eff, Phi_arr, Theta_arr, p, q, FALSE, numeric(0))
-
-  # LM damping parameter: 0 = pure Gauss-Newton; increased automatically
-  # when ZZ is ill-conditioned or the GN step is not a descent direction.
-  mu    <- 0.0
-  n_reg <- nrow(res$ZZ)
-
-  for (iter in 1:maxit) {
-
-    ZZ       <- res$ZZ
-    ZE       <- res$ZE
-    ssr_curr <- sum(res$E[(t_start + 1L):n, ]^2)
-
-    # Levenberg-Marquardt outer loop: increase diagonal damping mu until
-    # Delta = solve(ZZ + mu*I, ZE) produces an actual SSR decrease.
-    step_accepted <- FALSE
-    for (lm_try in 0:8) {
-
-      ZZ_reg <- ZZ + diag(mu, n_reg)
-      Delta  <- tryCatch(solve(ZZ_reg, ZE), error = function(e) NULL)
-
-      if (is.null(Delta)) {
-        mu <- if (mu == 0) 1e-4 * mean(diag(ZZ)) else mu * 10
-        next
+  value <- objective(res$E); history <- value
+  mu <- 0; convergence <- 1L
+  for (iter in seq_len(maxit)) {
+    accepted <- FALSE
+    # ZE is the full covariance-weighted score, with cross-equation terms.
+    if (max(abs(res$ZE)) < tol) { convergence <- 0L; break }
+    for (attempt in seq_len(12L)) {
+      delta <- tryCatch(solve(res$ZZ+diag(mu,nrow(res$ZZ)),res$ZE),error=function(e) NULL)
+      if (!is.null(delta) && all(is.finite(delta))) {
+        delta <- matrix(delta,width,m)
+        scale <- 1
+        for (ls in seq_len(25L)) {
+          at <- aa; bt <- bb
+          for (i in seq_len(p)) at[,,i] <- aa[,,i]+scale*t(delta[(i-1L)*m+seq_len(m),,drop=FALSE])
+          for (j in seq_len(q)) bt[,,j] <- bb[,,j]+scale*t(delta[m*p+(j-1L)*m+seq_len(m),,drop=FALSE])
+          ct <- if (intercept) cc+scale*delta[width,] else numeric(0)
+          candidate <- varma(ar=if (p) at else NULL,ma=bt,cov=fit$cov)
+          if (all(is_stable(candidate))) {
+            # Only accepted steps need a new derivative/normal-equation system.
+            trial_errors <- varma_residuals(Y,at,bt,ct)
+            val <- objective(trial_errors)
+            if (is.finite(val) && val > value) { accepted <- TRUE; break }
+          }
+          scale <- scale/2
+        }
       }
-
-      # Backtracking line search: halve lambda until SSR decreases
-      # (Reinsel et al. 1992, Section 3, eq. 14).
-      lambda <- 1.0
-      for (ls in 1:20) {
-        Phi_trial   <- Phi_arr
-        Theta_trial <- Theta_arr
-        idx_ls <- 0L
-        for (i in seq_len(p)) {
-          Phi_trial[, , i] <- Phi_arr[, , i] +
-            lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
-          idx_ls <- idx_ls + m
-        }
-        for (j in seq_len(q)) {
-          Theta_trial[, , j] <- Theta_arr[, , j] +
-            lambda * t(Delta[(idx_ls + 1L):(idx_ls + m), , drop = FALSE])
-          idx_ls <- idx_ls + m
-        }
-        res_trial <- rby_optimization_step(Y_eff, Phi_trial, Theta_trial, p, q,
-                                           FALSE, numeric(0))
-        if (sum(res_trial$E[(t_start + 1L):n, ]^2) < ssr_curr) {
-          step_accepted <- TRUE
-          break
-        }
-        lambda <- lambda * 0.5
-      }
-
-      if (step_accepted) break
-
-      # Step did not descend: increase LM damping and try again.
-      mu <- if (mu == 0) 1e-4 * mean(diag(ZZ)) else mu * 10
+      if (accepted) break
+      mu <- if (mu==0) max(1e-8,1e-4*mean(diag(res$ZZ))) else mu*10
     }
-
-    if (step_accepted) {
-      Phi_arr   <- Phi_trial
-      Theta_arr <- Theta_trial
-      res       <- res_trial
-      mu        <- mu / 10   # Relax damping after a successful step.
-    } else {
-      if (verbose) cat(sprintf("Line search failed at iteration %d; stopping.\n", iter))
-      break
-    }
-
-    # Convergence: step size independent of lambda and mu.
-    conv_measure <- max(abs(Delta))
-    if (conv_measure < tol) {
-      if (verbose) cat(sprintf("Convergence reached at iteration %d. Max Delta: %f\n",
-                               iter, conv_measure))
-      break
-    }
-
-    if (verbose && (iter %% 5 == 0)) cat(sprintf("Iter %d: Max Delta = %f\n",
-                                         iter, conv_measure))
+    if (!accepted) break
+    aa <- at; bb <- bt; cc <- ct; res <- step(aa,bb,cc); value <- val
+    history <- c(history,value); mu <- mu/10
+    if (verbose) cat("Iteration",iter,"conditional log-likelihood",value,"\n")
+    if (max(abs(scale*delta)) < tol) { convergence <- 0L; break }
   }
-
-  # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
-  if (intercept) {
-    I_minus_Phi <- diag(m)
-    for (i in 1:p) I_minus_Phi <- I_minus_Phi - Phi_arr[, , i]
-    c_curr <- drop(I_minus_Phi %*% Y_mean)
-  }
-
-  # Covariance matrix (ML estimator) and concentrated log-likelihood
-  nobs      <- n - t_start
-  E_final   <- res$E
-  Sigma_hat <- crossprod(E_final[(t_start + 1L):n, ]) / nobs
-  loglik_val <- -(nobs * m / 2) * (log(2 * pi) + 1) -
-    (nobs / 2) * log(det(Sigma_hat))
-
-  # Parameters counted: m^2*(p+q) dynamic coefs + m intercepts (if any) + m*(m+1)/2 cov
-  npar <- m^2 * (p + q) + m * as.integer(intercept) + m * (m + 1L) %/% 2L
-
-  structure(
-    list(
-      intercept         = if (intercept) c_curr else NULL,
-      ar                = Phi_arr,
-      ma                = Theta_arr,
-      cov               = Sigma_hat,
-      estimation_method = fn_name,
-      loglik            = loglik_val,
-      n                 = n,
-      nobs              = sum(!is.na(Y)) - t_start*m,
-      npar              = npar,
-      y                 = Y,
-      residuals         = E_final
-    ),
-    class = "varma"
-  )
+  fit <- varma(intercept=if (intercept) cc else NULL,ar=if (p) aa else NULL,ma=bb)
+  fit <- .varma_finish(fit,Y,"fit_varma_rby",m*width,
+                       convergence=convergence,iterations=iter)
+  fit$loglik_history <- history
+  fit
 }
 
-#' Fit a VARMA(p,q) in diagonal MA form using the iterated GLS method
+
+#' Fit a VARMA(p,q) in diagonal MA form using feasible GLS
 #'
-#' Estimates the parameters of a VARMA(p,q) model by maximizing the
-#' likelihood iterating GLS step as in Dufour and Pelletier (2022).
+#' Computes a pilot long VAR followed by one feasible GLS regression with diagonal
+#' or scalar MA restrictions. This implementation is not an iterated likelihood
+#' maximiser. With an intercept, both stages use centred observations.
 #'
 #' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
 #' @param p the autoregressive order.
@@ -1560,117 +1056,17 @@ fit_varma_rby <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @return A varma object.
 #' @export
 fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
-                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          r = .varma_long_order(as.matrix(Y),p,q,intercept),
                           verbose = FALSE) {
-  fn_name <- as.character(sys.call()[[1]])
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  n <- nrow(Y)
-  m <- ncol(Y)
-  if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
-  # if no VMA part, call ihr, that returns the pure VAR regression
-  if (q < 1) return(fit_varma_ihr(Y, p, q, intercept))
-
-  # When intercept = TRUE, we work on centered Y.
-  if (intercept) {
-    Y_mean <- colMeans(Y)
-    Y_eff  <- Y - rep(Y_mean, each = n)
-  } else {
-    Y_mean <- NULL
-    Y_eff  <- Y
-  }
-
-  # --- STEP 1: Long VAR to estimate the residuals ---
-  X <- stats::embed(Y_eff, r+1)[, -seq_len(m)]
-  hr_reg <- stats::lm.fit(x = X, y = Y_eff[-seq_len(r), ])
-  U_hat  <- hr_reg$resid
-
-
-  # Align Y and U. The VAR loses initial observations.
-  # For step 2, we need Y and U sync'd.
-  # U_hat starts at t = r + 1
-  Y_step2 <- Y[(r + 1):n, ]
-
-  # Residuals covariance matrix (Sigma_U) and its inverse
-  Sigma_U <- crossprod(U_hat)/(n-r)
-  Sigma_U_inv <- chol2inv(chol(Sigma_U))
-
-  # --- STEP 2: GLS via Rcpp ---
-  res_cpp <- estimate_varma_gls_cpp(Y_step2, U_hat, Sigma_U_inv, p, q, "diagonal")
-  coefs_vec <- res_cpp$coefficients
-  Phi_hat <- array(0, c(m, m, p))
-
-  # --- Formatting the Output ---
-  # Making the Phi e Theta arrays from the coefficient vector
-
-  # 1. Extract Phi
-  # The vector has all the phi's of eq 1, then eq 2, ...
-  # Every block eq has (m*p) elements.
-  n_phi <- m * m * p
-  phi_vec <- coefs_vec[seq_len(n_phi)]
-
-  # Parsing dei coefficienti Phi
-  if (p > 0) {
-    idx <- 1
-    for (k_eq in 1:m) { # For each equation
-      for (lag in 1:p) {
-        for (k_var in 1:m) { # Coefficient of the variabile k_var at lag 'lag'
-          Phi_hat[k_eq, k_var, lag] <- phi_vec[idx]
-          idx <- idx + 1
-        }
-      }
-    }
-  }
-
-  # 2. Extract Theta
-  theta_vec <- coefs_vec[(n_phi + 1):length(coefs_vec)]
-  Theta_hat <- array(0, c(m, m, q))
-
-  # Theta is diagonal, but every diagonal element is different
-  # Vector structure: [theta_11(L), theta_22(L), ...]
-  idx_t <- 1
-  for (k in 1:m) {
-    for (lag in 1:q) {
-      Theta_hat[k, k, lag] <- theta_vec[idx_t]
-      idx_t <- idx_t + 1
-    }
-  }
-
-  # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
-  if (intercept) {
-    I_minus_Phi <- diag(m)
-    for (i in 1:p) I_minus_Phi <- I_minus_Phi - Phi_hat[, , i]
-    c_curr <- drop(I_minus_Phi %*% Y_mean)
-  }
-
-  varma_obj <- varma(ar = Phi_hat, ma = Theta_hat)
-  U_final <- residuals.varma(varma_obj, Y = Y_eff)
-  maxpq <- max(p, q)
-  Sigma_U <- crossprod(U_final[-seq_len(maxpq), ]) / (n - maxpq)
-
-  structure(
-    list(
-      intercept         = if (intercept) c_curr else NULL,
-      mean              = Y_mean,
-      ar                = Phi_hat,
-      ma                = Theta_hat,
-      cov               = Sigma_U,
-      estimation_method = fn_name,
-      loglik            = -(n * m / 2) * (log(2 * pi) + 1) -
-        (n / 2) * log(det(Sigma_U)),
-      n                 = n,
-      nobs              = sum(!is.na(Y_step2)),
-      npar              = length(coefs_vec),
-      y                 = Y,
-      residuals         = U_final
-    ),
-    class = "varma"
-  )
+  .varma_dp(Y,p,q,intercept,r,"diagonal")
 }
 
-#' Fit a VARMA(p,q) in final MA form using the iterated GLS method
+
+#' Fit a VARMA(p,q) in final MA form using feasible GLS
 #'
-#' Estimates the parameters of a VARMA(p,q) model by maximizing the
-#' likelihood iterating GLS step as in Dufour and Pelletier (2022).
+#' Computes a pilot long VAR followed by one feasible GLS regression with diagonal
+#' or scalar MA restrictions. This implementation is not an iterated likelihood
+#' maximiser. With an intercept, both stages use centred observations.
 #'
 #' @param Y a numeric matrix or ts object with d columns (series) and N rows (observations).
 #' @param p the autoregressive order.
@@ -1682,109 +1078,9 @@ fit_varma_dpd <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @return A varma object.
 #' @export
 fit_varma_dpf <- function(Y, p = 1, q = 1, intercept = TRUE,
-                          r = max(p+q, round(nrow(Y)/(4*ncol(Y)))),
+                          r = .varma_long_order(as.matrix(Y),p,q,intercept),
                           verbose = FALSE) {
-  fn_name <- as.character(sys.call()[[1]])
-  if (!is.matrix(Y)) Y <- as.matrix(Y)
-  n <- nrow(Y)
-  m <- ncol(Y)
-  if ((p<1) && (q<1)) stop("at least one among p and q must be positive")
-
-  # if no VMA part, call ihr, that returns the pure VAR regression
-  if (q < 1) return(fit_varma_ihr(Y, p, q, intercept))
-
-  # When intercept = TRUE, we work on centered Y.
-  if (intercept) {
-    Y_mean <- colMeans(Y)
-    Y_eff  <- Y - rep(Y_mean, each = n)
-  } else {
-    Y_mean <- NULL
-    Y_eff  <- Y
-  }
-
-  # --- STEP 1: Long VAR to estimate the residuals ---
-  X <- stats::embed(Y_eff, r+1)[, -seq_len(m)]
-  hr_reg <- stats::lm.fit(x = X, y = Y_eff[-seq_len(r), ])
-  U_hat  <- hr_reg$resid
-
-
-  # Align Y and U. The VAR loses initial observations.
-  # For step 2, we need Y and U sync'd.
-  # U_hat starts at t = r + 1
-  Y_step2 <- Y[(r + 1):n, ]
-
-  # Residuals covariance matrix (Sigma_U) and its inverse
-  Sigma_U <- crossprod(U_hat)/(n-r)
-  Sigma_U_inv <- chol2inv(chol(Sigma_U))
-
-  # --- STEP 2: GLS via Rcpp ---
-  res_cpp <- estimate_varma_gls_cpp(Y_step2, U_hat, Sigma_U_inv, p, q, "final")
-  coefs_vec <- res_cpp$coefficients
-  Phi_hat <- array(0, c(m, m, p))
-
-  # --- Formatting the Output ---
-  # Making the Phi e Theta arrays from the coefficient vector
-
-  # 1. Extract Phi
-  # The vector has all the phi's of eq 1, then eq 2, ...
-  # Every block eq has (m*p) elements.
-  n_phi <- m * m * p
-  phi_vec <- coefs_vec[seq_len(n_phi)]
-
-  # Parsing dei coefficienti Phi
-  if (p > 0) {
-    idx <- 1
-    for (k_eq in 1:m) { # For each equation
-      for (lag in 1:p) {
-        for (k_var in 1:m) { # Coefficient of the variabile k_var at lag 'lag'
-          Phi_hat[k_eq, k_var, lag] <- phi_vec[idx]
-          idx <- idx + 1
-        }
-      }
-    }
-  }
-
-  # 2. Extract Theta
-  theta_vec <- coefs_vec[(n_phi + 1):length(coefs_vec)]
-  Theta_hat <- array(0, c(m, m, q))
-
-  # Theta is scalar (diagonal matrix with same values on the diagonal)
-  # Vector structure: [theta_scalar(lag1), theta_scalar(lag2)...]
-  for (lag in 1:q) {
-    val <- theta_vec[lag]
-    diag(Theta_hat[,,lag]) <- val
-  }
-
-  # Profile MLE for the intercept: c = (I - Phi_1 - ... - Phi_p) * colMeans(Y)
-  if (intercept) {
-    I_minus_Phi <- diag(m)
-    for (i in 1:p) I_minus_Phi <- I_minus_Phi - Phi_hat[, , i]
-    c_curr <- drop(I_minus_Phi %*% Y_mean)
-  }
-
-  varma_obj <- varma(ar = Phi_hat, ma = Theta_hat)
-  U_final <- residuals.varma(varma_obj, Y = Y_eff)
-  maxpq <- max(p, q)
-  Sigma_U <- crossprod(U_final[-seq_len(maxpq), ]) / (n - maxpq)
-
-  structure(
-    list(
-      intercept         = if (intercept) c_curr else NULL,
-      mean              = Y_mean,
-      ar                = Phi_hat,
-      ma                = Theta_hat,
-      cov               = Sigma_U,
-      estimation_method = fn_name,
-      loglik            = -(n * m / 2) * (log(2 * pi) + 1) -
-        (n / 2) * log(det(Sigma_U)),
-      n                 = n,
-      nobs              = sum(!is.na(Y_step2)),
-      npar              = length(coefs_vec),
-      y                 = Y,
-      residuals         = U_final
-    ),
-    class = "varma"
-  )
+  .varma_dp(Y,p,q,intercept,r,"final")
 }
 
 
@@ -1831,7 +1127,9 @@ convert_fable_varma <- function(object) {
   vnames <- colnames(mod$data)
   vnames <- setdiff(vnames, attr(mod$data, "index"))
   y <- mod$fit$data
-  nobs <- sum(!is.na(y))
+  usable <- stats::complete.cases(mod$fit$residuals)
+  errors <- as.matrix(mod$fit$residuals)[usable,,drop=FALSE]
+  nobs <- nrow(errors)
 
   structure(
     list(
@@ -1840,11 +1138,10 @@ convert_fable_varma <- function(object) {
       ma = if (is.null(mod$fit$Theta)) NULL else array(-mod$fit$Theta, c(m, m, ncol(mod$fit$Theta)/m)),
       cov = mod$fit$Sigma,
       estimation_method = paste0("fable_varima_", mod$fit$identification),
-      loglik = - (nobs / 2) * (log(2 * pi) + 1) -
-        (nrow(mod$fit$residuals) / 2) * determinant(mod$fit$Sigma, logarithm = TRUE)$modulus,
+      loglik = .varma_gaussian_ll(errors,mod$fit$Sigma),
       n = nrow(y),
       nobs = nobs,
-      npar = length(mod$fit$coef),
+      npar = length(mod$fit$coef)+m*(m+1L)/2L,
       y = mod$fit$data,
       residuals = mod$fit$residuals
     ),
@@ -2012,24 +1309,26 @@ rvarma <- function(m, p, q, max_eig_ar = 0.9, max_eig_ma = 0.9,
 #' @export
 logLik.varma <- function(object, ...) {
   if (is.null(object$loglik)) {
-    warning("There is no log-likelihood in the varma object\n")
-    return(structure(NA, df = NA))
+    warning("There is no log-likelihood in the varma object")
+    return(structure(NA_real_,df=NA_integer_,nobs=NA_integer_,class="logLik"))
   }
-  npar_intercept <- if (!is.null(object$intercept)) length(object$intercept) else
-                    if (!is.null(object$mean))      length(object$mean)      else 0L
-  structure(
-    object$loglik,
-    df = length(object$ar) + length(object$ma) +
-      prod(dim(object$cov) + c(0, 1))/2 + npar_intercept
-  )
+  k <- object[["npar",exact=TRUE]]
+  if (is.null(k)) {
+    m <- dim(object)[1L]
+    k <- length(object$ar)+length(object$ma)+m*(m+1L)/2L+
+      if (!is.null(object$intercept)) length(object$intercept) else length(object$mean)
+  }
+  structure(as.numeric(object$loglik),df=k,nobs=object$nobs,class="logLik")
 }
+
 
 #' nobs method for a varma object
 #'
 #' @param object a varma object.
 #' @param ... not used.
 #'
-#' @returns A numeric scalar with the number of observations.
+#' @returns Number of vector observations used in the likelihood, not the total
+#' number of scalar entries across variables.
 #'
 #' @importFrom stats nobs
 #' @method nobs varma
@@ -2071,7 +1370,7 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
             !is.null(object$state_pred_cov)  &&
             !is.null(object$transition_matrix)  &&
             !is.null(object$disturbance_cov))
-  mpq <- dim(object)
+  mpq <- unname(dim(object))
   m <- mpq[1]
   p <- mpq[2]
   q <- mpq[3]
@@ -2095,7 +1394,11 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
       Mt   <- t(matrix(object$ma, m, m * q))
     }
     for (i in seq_len(n.ahead)) {
-      yi <- if (!is.null(object$intercept)) object$intercept else numeric(m)
+      yi <- if (!is.null(object$intercept)) object$intercept else {
+        cc <- .varma_process_mean(object)
+        for (j in seq_len(p)) cc <- cc-matrix(object$ar[,,j],m,m) %*% .varma_process_mean(object)
+        as.numeric(cc)
+      }
       if (p > 0) yi <- yi + as.numeric(ylag %*% At)
       if (q > 0 && i <= q) {
         yi <- yi + as.numeric(elag %*% Mt)
@@ -2115,7 +1418,7 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
       dimnames(S) <- list(colnames(yhat), colnames(yhat), NULL)
       S[,, 1] <- object$cov                          # Psi_0 = I, so I Sigma I' = Sigma
       for (h in seq_len(n.ahead - 1L) + 1L) {
-        S[,, h] <- S[,, h - 1L] + Psi[,, h] %*% tcrossprod(object$cov, Psi[,, h])
+        S[,, h] <- S[,, h - 1L] + matrix(Psi[,, h],m,m) %*% tcrossprod(object$cov, matrix(Psi[,, h],m,m))
       }
       return(list(mean = yhat, cov = S))
     } else {
@@ -2149,7 +1452,7 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
       }
       return(
         list(mean = yhat,
-             cov  = phat[1:m, 1:m, ]
+             cov  = phat[1:m, 1:m, , drop = FALSE]
         )
       )
     } else {
@@ -2169,7 +1472,9 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
 #' @param nsim number of sample paths to simulate (default: 100).
 #' @param n length of the time series (default: the `n` in the varma object).
 #' @param resids_to_skip non-negative integer witht he number of initial residuals to drop because
-#' they may have a very large variance (default: 5).
+#' they may have a very large variance (default: 5). Zero skips no valid residuals;
+#' rows marked as presample by residuals_start are always excluded.
+#' @param burn_in number of simulated initial observations to discard (default: 100).
 #' @param fit_fn function to apply to every simulated path: it is usually a
 #' `fit_varma_???` function (default: the function that generated the estimates
 #' in the varma object).
@@ -2178,82 +1483,55 @@ predict.varma <- function(object, n.ahead = 1, cov = TRUE, ...) {
 #' @param n_cores number of cores for parallel processing. If NULL, uses
 #'   parallel::detectCores() - 1 (default: NULL).
 #'
+#' @details Residual vectors are centred and resampled jointly. The fitted process
+#' mean is restored after simulation. The fitted model must be stable and invertible.
+#' These implementation checks do not establish bootstrap validity at singular
+#' or unidentified distributions.
 #' @return A list with `nsim` slots containing the applications of the
 #' function `fit_fn` to the simulated sample paths.
 #' @export
 bootstrap_varma <- function(varma, nsim = 100, n = varma$n, resids_to_skip = 5,
                            fit_fn = get(varma$estimation_method), ...,
-                           parallel = FALSE, n_cores = NULL) {
-
-  res <- t(varma$residuals[-(1:resids_to_skip), ])
-  mpq <- dim(varma)
+                           parallel = FALSE, n_cores = NULL, burn_in = 100) {
+  nsim <- .varma_integer(nsim,"nsim"); n <- .varma_integer(n,"n")
+  burn_in <- .varma_integer(burn_in,"burn_in",0L)
+  resids_to_skip <- .varma_integer(resids_to_skip,"resids_to_skip",0L)
+  if (!all(is_stable(varma))) stop("Residual bootstrap requires a stable, invertible fitted model")
+  res <- as.matrix(varma$residuals)
+  if (!nrow(res)) stop("No residuals available")
+  valid_start <- varma$residuals_start
+  if (is.null(valid_start)) valid_start <- 1L
+  skip <- max(resids_to_skip,valid_start-1L)
+  if (skip >= nrow(res)) stop("No residuals remain after trimming")
+  res <- res[seq.int(skip+1L,nrow(res)),,drop=FALSE]
+  if (any(!is.finite(res))) stop("Residuals must be finite")
+  res <- t(sweep(res,2,colMeans(res),"-"))
+  mpq <- dim(varma); m <- mpq[1L]
+  aa <- if (mpq[2L]) varma$ar else array(0,c(m,m,0))
+  bb <- if (mpq[3L]) varma$ma else array(0,c(m,m,0))
+  mu <- .varma_process_mean(varma)
   intercept <- !is.null(varma$intercept) || !is.null(varma$mean)
-
-  ar_array <- if (!is.null(varma$ar)) {
-    array(varma$ar, c(mpq[1], mpq[1], mpq[2]))
-  } else {
-    array(0, c(mpq[1], mpq[1], 0))
+  dots <- list(...)
+  refit_args <- list(p=mpq[2L],q=mpq[3L],intercept=intercept)
+  if(!is.null(varma$refit_args) &&
+     identical(fit_fn,get(varma$estimation_method,mode="function")))
+    refit_args <- varma$refit_args
+  refit_args <- utils::modifyList(refit_args,dots,keep.null=TRUE)
+  run_simulation <- function(i) {
+    yy <- sim_varma_rcpp(aa,bb,res[,sample.int(ncol(res),n+burn_in,replace=TRUE),drop=FALSE])
+    yy <- sweep(yy[,burn_in+seq_len(n),drop=FALSE],1,mu,"+")
+    do.call(fit_fn,c(list(Y=t(yy)),refit_args))
   }
-  ma_array <- if (!is.null(varma$ma)) {
-    array(varma$ma, c(mpq[1], mpq[1], mpq[3]))
-  } else {
-    array(0, c(mpq[1], mpq[1], 0))
-  }
-
-  # --- Start of Parallel/Sequential Logic ---
-
-  run_simulation <- function() {
-    y <- sim_varma_rcpp(
-      ar_array,
-      ma_array,
-      res[, sample.int(ncol(res), n, replace = TRUE)] # Fixed: should be ncol
-    )
-    fit_fn(Y = t(y), p = mpq[2], q = mpq[3], intercept = intercept, ...)
-  }
-
   if (parallel) {
-    if (!requireNamespace("future.apply", quietly = TRUE)) {
-      stop("Package 'future.apply' is needed for parallel execution. Please install it.")
-    }
-
-    if (is.null(n_cores)) {
-      n_cores <- parallel::detectCores() - 1
-    }
-
-    # Set the parallel plan conditionally based on OS
-    if (.Platform$OS.type == "windows") {
-      future::plan(future::multisession, workers = n_cores)  # Fallback for Windows
-    } else {
-      future::plan(future::multicore, workers = n_cores)     # Preferred for Linux/macOS
-    }
-
-    # Ensure the user's original plan is restored when the function exits
-    on.exit(future::plan(future::sequential), add = TRUE)
-
-    message(paste("Running", nsim, "simulations in parallel on", n_cores, "cores..."))
-
-    results <- future.apply::future_replicate(
-      nsim,
-      expr = run_simulation(),
-      simplify = FALSE,
-      future.seed = TRUE # Ensures reproducibility in parallel
-    )
-
-  } else {
-    message(paste("Running", nsim, "simulations sequentially..."))
-
-    results <- replicate(
-      nsim,
-      expr = run_simulation(),
-      simplify = FALSE
-    )
-  }
-
-  structure(
-    results,
-    generator = varma
-  )
+    if (is.null(n_cores)) n_cores <- max(1L,parallel::detectCores()-1L)
+    n_cores <- .varma_integer(n_cores,"n_cores")
+    old_plan <- future::plan(); on.exit(future::plan(old_plan),add=TRUE)
+    future::plan(future::multisession,workers=n_cores)
+    result <- future.apply::future_lapply(seq_len(nsim),run_simulation,future.seed=TRUE)
+  } else result <- lapply(seq_len(nsim),run_simulation)
+  structure(result,generator=varma)
 }
+
 
 #' IRF from bootstrapped varma objects
 #'
@@ -2317,8 +1595,10 @@ booted_irf <- function(varma_list, maxlag = 10,
 
 #' Selct the VARMA order
 #'
-#' It computes an information criterion for all combinations of
-#' p, q, and intercept for determining the VARMA order.
+#' Computes information criteria over AR/MA orders and intercept choices. Conditional
+#' likelihoods use a common trimmed sample; stationary likelihoods use the full sample.
+#' Innovation covariance parameters are counted. Counts are nominal: conventional
+#' information-criterion theory need not apply at singular representations.
 #'
 #' @param Y matrix of time series.
 #' @param p_max maximum order for the VAR part.
@@ -2332,55 +1612,43 @@ booted_irf <- function(varma_list, maxlag = 10,
 #' @returns A data.frame with columns p, q, intercept, ic
 #'
 #' @export
-select_varma_order <- function(Y, p_max = 5, q_max = 5,
-                               intercept = TRUE,
+select_varma_order <- function(Y, p_max = 5, q_max = 5, intercept = TRUE,
                                ic = c("AIC", "AICc", "BIC", "HQC"),
-                               fit_fn = fit_varma_ihr,
-                               ...) {
+                               fit_fn = fit_varma_ihr, ...) {
   ic <- match.arg(ic)
-  m <- ncol(Y)
-  n <- sum(!is.na(Y))/m # compute average number of non-missing values
-  S <- var(Y, na.rm = TRUE)
-  mu_hat      <- colMeans(Y, na.rm = TRUE)
-  res_det     <- determinant(S, logarithm = TRUE)
-  log_det_S   <- as.numeric(res_det$modulus)
-  quad_terms  <- mahalanobis(Y, center = mu_hat, cov = S)
-  quad_terms0 <- mahalanobis(Y, center = FALSE, cov = S)
-  sum_quad    <- sum(quad_terms)
-  sum_quad0   <- sum(quad_terms0)
-  gr <- expand.grid(p = c(0, seq_len(p_max)),
-                    q = c(0, seq_len(q_max)),
-                    intercept = if (intercept) c(FALSE, TRUE) else FALSE,
-                    ic = NA_real_)
+  p_max <- .varma_integer(p_max,"p_max",0L); q_max <- .varma_integer(q_max,"q_max",0L)
+  Y <- as.matrix(Y); n <- nrow(Y); m <- ncol(Y)
+  if (!is.numeric(Y) || any(!is.finite(Y)) || n <= max(p_max,q_max)) stop("Invalid Y or order bounds")
+  gr <- expand.grid(p=0:p_max,q=0:q_max,intercept=if (intercept) c(FALSE,TRUE) else FALSE)
+  fits <- vector("list",nrow(gr))
   for (i in seq_len(nrow(gr))) {
-    if (gr$p[i] == 0 && gr$q[i] == 0) { # case p = 0, q = 0
-      if (gr$intercept[i]){ # with intercept
-        loglik <- -(n * m / 2)*log(2 * pi) - (n / 2)*log_det_S - 0.5*sum_quad
-        npar   <- m
-      } else { # without intercept
-        loglik <- -(n * m / 2)*log(2 * pi) - (n / 2)*log_det_S - 0.5*sum_quad0
-        npar   <- 0
-      }
-    } else { # case p > 0 or q > 0
-      loglik <- NA_real_
-      npar   <- NA_integer_
-      tryCatch({
-        fit <- fit_fn(Y = Y, p = gr$p[i], q = gr$q[i], intercept = gr$intercept[i], ...)
-        loglik <- fit$loglik
-        npar <- fit$npar},
-        error = function(e) warning(paste("Could not compute IC for p =", gr$p,
-                                          "q =", gr$q, "\n"))
-      )
+    if (gr$p[i]+gr$q[i]==0L) {
+      mu <- if (gr$intercept[i]) colMeans(Y) else numeric(m)
+      E <- sweep(Y,2,mu,"-"); S <- crossprod(E)/n
+      f <- varma(mean=if (gr$intercept[i]) mu else NULL,cov=S,y=Y,residuals=E,
+                 loglik=.varma_gaussian_ll(E,S),n=n,nobs=n,
+                 npar=m*as.integer(gr$intercept[i])+m*(m+1L)/2L)
+      f$likelihood_type <- "iid"; fits[[i]] <- f
+    } else {
+      fits[i] <- list(tryCatch(fit_fn(Y=Y,p=gr$p[i],q=gr$q[i],intercept=gr$intercept[i],...),
+        error=function(e) {
+          warning(sprintf("Could not fit p=%d, q=%d, intercept=%s: %s",gr$p[i],gr$q[i],gr$intercept[i],conditionMessage(e)))
+          NULL
+        }))
     }
-    gr[i,"ic"] <- switch(ic,
-                         AIC = -2*loglik + 2*npar,
-                         AICc = -2*loglik + 2*npar +
-                           (2*npar*(npar + 1))/(n - npar - 1),
-                         BIC = -2*loglik + npar*log(n),
-                         HQC = -2*loglik + 2*npar*log(log(n))
-                         )
   }
-  gr$rank <- rank(gr$ic)
-  names(gr)[4] <- ic
-  gr[order(gr$rank),]
+  conditional <- any(vapply(fits,function(f) !is.null(f) &&
+    !identical(f$likelihood_type,"iid") && !identical(f$likelihood_type,"stationary"),logical(1)))
+  rows <- seq.int(if (conditional) max(p_max,q_max)+1L else 1L,n)
+  gr[[ic]] <- vapply(fits,function(f) {
+    if (is.null(f)) return(NA_real_)
+    ll <- f$loglik; nn <- f$nobs
+    if (conditional) {
+      E <- residuals.varma(f,Y)[rows,,drop=FALSE]
+      ll <- .varma_gaussian_ll(E,f$cov); nn <- length(rows)
+    }
+    .varma_ic(as.numeric(ll),attr(logLik.varma(f),"df"),nn,ic)
+  },numeric(1))
+  gr$rank <- rank(gr[[ic]],na.last="keep")
+  gr[order(gr$rank,na.last=TRUE),]
 }

@@ -9,13 +9,13 @@ is_identified(varma, tol = 1e-05)
 \arguments{
 \item{varma}{a varma object.}
 
-\item{tol}{a small numeric value indicating the tolerance for the numerical check
-(default: 1e-5).}
+\item{tol}{relative singular-value tolerance for the numerical rank (default: 1e-5).}
 }
 \value{
 TRUE if the VARMA is identified and FALSE otherwise.
 }
 \description{
-The function checks if the VARMA process is identified by numerically checking if the
-roots of the characteristic polynomials are distinct.
+Tests uniqueness of the normalized AR and MA coefficients at the supplied
+orders using the rank of linear restrictions implied by the transfer function.
+Common scalar polynomial roots alone do not determine multivariate identification.
 }
