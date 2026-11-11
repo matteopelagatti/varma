@@ -1,7 +1,7 @@
 Package: varma
 Type: Package
 Title: Tools for Vector Autoregressive Moving-Average (VARMA) Model Analysis
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(
     person(
       "Matteo", "Pelagatti",
@@ -34,7 +34,9 @@ Imports:
   utils
 Suggests:
   fable (>= 0.4.1),
+  ggplot2 (>= 3.4.0),
   knitr,
-  rmarkdown
+  rmarkdown,
+  scales
 LinkingTo: Rcpp, RcppArmadillo
 RoxygenNote: 7.3.3

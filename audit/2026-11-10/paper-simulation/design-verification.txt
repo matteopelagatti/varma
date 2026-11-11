@@ -1,5 +1,0 @@
-  design max_absolute_difference
-1 model1            4.440892e-16
-2 model2            3.885781e-16
-3 model3            3.996803e-15
-4 model4            4.440892e-16

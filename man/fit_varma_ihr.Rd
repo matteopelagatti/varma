@@ -37,9 +37,13 @@ size and is capped to leave residual degrees of freedom.}
 \value{
 If ret = "varma" a varma object, otherwise a list with the following elements:
 coefficients, regression residuals, fitted.values, effects, weights, rank,
-df.residual, qr, n_iter, converged, rows, and res_cov. A varma object instead
-stores recursive innovations computed from its final coefficients, with initial
-zeros marked by residuals_start, and convergence/iterations diagnostics.
+df.residual, qr, n_iter, converged, rows, and res_cov. A varma object stores
+the final regression's innovation proxies, aligned with Y and with excluded
+initial rows marked by residuals_start. Forecasting and residual bootstrap
+use these proxies. They need not equal a zero-initialized inverse-filter
+recursion, especially when iteration has not converged or the fitted MA
+polynomial is noninvertible. The reported Gaussian criterion is labeled
+regression_approximation for q > 0, not an exact conditional likelihood.
 }
 \description{
 VARMA estimation using the iterated Hannan-Rissanen method

@@ -62,10 +62,12 @@ based on `fit_varma_ihr`.}
 \item{ret}{a character string indicating the type of output: "varma" or "regression".}
 }
 \value{
-A varma object with refreshed recursive innovations and covariance, or
+A varma object with final post-SUR regression innovation proxies
+and their covariance, or
 a list of glmnet fits (fixed lambda) or cv.glmnet fits (a penalty path).
 SUR uses the selected support. The parameter count includes innovation covariance
 parameters and is a nominal count, not a general effective-df formula for penalized fits.
+For q > 0 the Gaussian criterion is labeled regression_approximation.
 }
 \description{
 VARMA estimation using the iterated Hannan-Rissanen method with regularization

@@ -4,23 +4,26 @@
 \alias{residuals.varma}
 \title{residuals method for varma object}
 \usage{
-\method{residuals}{varma}(object, Y = NULL, recompute = TRUE, ...)
+\method{residuals}{varma}(object, Y = NULL, recompute = FALSE, ...)
 }
 \arguments{
 \item{object}{a varma object.}
 
-\item{Y}{data matrix if NULL the y slot in the varma object is used}
+\item{Y}{optional new data matrix. Supplying Y always recomputes residuals
+for those data; otherwise the fitted object's y slot is used when needed.}
 
-\item{recompute}{logical, if FALSE and the varma object contains residuals,
-the function returns those residuals, if TRUE the function recomputes the
-residuals.}
+\item{recompute}{logical, default FALSE. Return the fitted estimator's stored
+residuals when available and Y is not supplied. TRUE applies the fitted
+model's zero-initialized recursive inverse filter instead.}
 
 \item{...}{not used.}
 }
 \value{
-Matrix of residuals. If recompute is TRUE, the residuals are always
-recomputed by this function, if it is FALSE and the varma object slot
-residuals is not NULL, then these residuals are returned.
+Matrix of residuals. Stored residuals retain the estimator's
+convention: IHR/NET regression innovation proxies, conditional recursive
+errors, or likelihood-based Kalman innovations. Recursive residuals can
+grow explosively for noninvertible fitted MA polynomials; they are not a
+substitute for the regression innovation proxies used by IHR or NET.
 }
 \description{
 residuals method for varma object

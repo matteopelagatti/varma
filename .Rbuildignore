@@ -3,4 +3,6 @@
 ^LICENSE\.md$
 ^audit$
 ^dist$
+^paper-results$
+^timing-test$
 ^\.claude$

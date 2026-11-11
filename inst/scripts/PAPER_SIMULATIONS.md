@@ -23,7 +23,7 @@ Install R first. For the supplied Windows binary, use **64-bit R 4.5.x**. In R:
 ```r
 install.packages(c("Rcpp", "RcppArmadillo", "KFAS", "FKF.SP", "Matrix",
                    "future", "future.apply", "glmnet"))
-install.packages("varma_0.1.0.zip", repos=NULL, type="win.binary")
+install.packages("varma_0.1.1.zip", repos=NULL, type="win.binary")
 library(varma)
 ```
 
@@ -31,7 +31,7 @@ The source archive also works on other platforms or when rebuilding for a
 different R version:
 
 ```r
-install.packages("varma_0.1.0.tar.gz", repos=NULL, type="source")
+install.packages("varma_0.1.1.tar.gz", repos=NULL, type="source")
 ```
 
 A source installation needs the appropriate compiler toolchain: Rtools on
@@ -40,6 +40,19 @@ binary in the dated replication bundle contain the same changes. Installing
 dependencies needs internet access; running the simulation does not.
 
 ## Benchmark, then run
+
+The obsolete 0.1.0 experiment has been removed from this checkout. Use
+`paper-results` for the corrected experiment and its article exports:
+
+```text
+Rscript inst/scripts/run_paper_simulations.R full paper-results 7 1000
+Rscript inst/scripts/article_paper_simulations.R paper-results
+```
+
+Run these commands from the repository root. The simulation runner requires
+varma >= 0.1.1. If the output argument is omitted, `full` and `summary` default
+to `paper-results`; `benchmark` defaults to `timing-test`. Completed checkpoints
+from a corrected run are still preserved for resuming an interrupted run.
 
 Open a terminal in the folder containing `run_paper_simulations.R`:
 
@@ -96,6 +109,21 @@ enough to recompute the reported accuracy measures and construct plots.
 
 ## Outputs and interpretation
 
+Version 0.1.1 corrects an IHR/HR1/NET forecasting regression in version 0.1.0:
+these estimators now retain their final regression innovation proxies, rather
+than replacing them with a potentially explosive inverse-MA recursion. Their
+coefficient estimates and reduced-form IRFs are unchanged by this correction.
+`residuals(fit)` returns stored estimator residuals by default; explicitly use
+`recompute=TRUE` for zero-initialized recursive residuals. Supplying new `Y`
+always recomputes residuals for those data.
+
+Old checkpoints retain the old forecasts: installing the correction does not
+repair them. Use a new results directory with the updated package when
+refreshing an experiment. The package-version field prevents resuming a 0.1.0
+experiment with 0.1.1 settings. The pilot order, regression window and stopping
+rule in 0.1.1 are unchanged from the November 10 implementation; they still
+differ from the original pre-November-10 IHR routine.
+
 - `irf-summary.csv`: untrimmed MSE and RMSE of reduced-form IRFs, overall and by
   lag. `horizon=0` pools positive lags 1–5; it does not score the identity response.
 - `forecast-summary.csv`: held-out forecast MSE/RMSE, by horizon and variable.
@@ -139,6 +167,92 @@ To refresh summaries after a partial run without estimating anything:
 ```text
 Rscript run_paper_simulations.R summary paper-results
 ```
+
+## Produce the paper figures and tables
+
+After the simulation has finished, run the reporting script from the repository
+root. It reads the saved checkpoints and **does not rerun the simulations**:
+
+```text
+Rscript inst/scripts/report_paper_simulations.R paper-results
+```
+
+In R or RStudio, the equivalent is:
+
+```r
+setwd("C:/GitHub/varma") # change this path on another computer
+source("inst/scripts/report_paper_simulations.R")
+report_varma_paper_simulation("paper-results")
+```
+
+The script requires `varma` and `ggplot2`; install `ggplot2` if it is missing.
+The reporting function lives in the script, so sourcing the new script is
+sufficient: reinstalling `varma` is not necessary if the simulation version is
+already installed. On another PC, copy this script and the complete results
+directory (including the manifest and all checkpoint files).
+
+Outputs go into `paper-results/report/`:
+
+- `paper_report.pdf`: the main figures and definitions in one document.
+- `figures/`: individual vector PDFs and PNG previews of IRF RMSE, IRF sampling
+  distributions, forecast RMSE, paired benchmark comparisons, forecast gaps,
+  selection accuracy, diagnostics and computing times. Detailed IRF PDFs cover
+  every response/innovation pair and every sample size.
+- `data/`: recomputed summaries, Monte Carlo standard errors, component
+  quantiles, bias, replication-level losses and diagnostic counts.
+- `tables/`: CSV and LaTeX tables of IRF accuracy, forecasts at the first and
+  last horizons, and diagnostics. `paper_tables.tex` is a standalone document
+  that includes the LaTeX tables; compile it from the report directory.
+- `README.md`: definitions, denominators, timing interpretation and run status.
+
+The figures retain the familiar names `tf_consist`, `log_times`, `irf_exp1` to
+`irf_exp4`, and `fcst_rmse1` to `fcst_rmse4`. The refreshed forecast figures
+include all variables and sample sizes. Their captions distinguish ordinary
+untrimmed RMSE, the convergence/stability subset (`_qualified`), and the
+separate 1%-trimmed IRF comparison. Historical Overleaf figures are not replaced.
+Review captions when inserting the new graphics: the estimators, timing units
+and benchmark definitions have changed since the original slides.
+
+The report validates experiment IDs, cell identities, method lists, duplicate
+replications, dimensions, availability flags and completeness. By default it
+stops on an incomplete experiment. To deliberately report a partial run:
+
+```text
+Rscript inst/scripts/report_paper_simulations.R paper-results partial-report --allow-partial
+```
+
+Such reports are labeled incomplete. A second positional argument changes the
+report directory; `--no-details` skips the multipage IRF component PDFs. In R,
+these options are `report_dir=`, `allow_partial=TRUE` and `details=FALSE`.
+Re-running overwrites the generated files in that report directory only;
+checkpoints and the runner's existing summary CSV files remain unchanged.
+
+IRF bands show Monte Carlo sampling quantiles, **not confidence intervals**.
+Forecast plots retain all finite large errors. Logarithmic axes and numerical
+tables expose extreme outcomes; qualified-subset plots provide a separate
+diagnostic comparison. Numerically scaled variance calculations avoid overflow
+in MCSEs when finite forecast losses are very large. This does not remove the
+statistical uncertainty caused by heavy-tailed losses. These outputs do not
+establish FEVD accuracy, bootstrap coverage or VAR-versus-VARMA comparisons.
+
+## Article-ready R exports
+
+For compact vector PDF figures and LaTeX tables, use the dedicated companion:
+
+```r
+source("inst/scripts/article_paper_simulations.R")
+article <- article_varma_paper_simulation("paper-results")
+```
+
+Or run `Rscript inst/scripts/article_paper_simulations.R paper-results`.
+The output is written to `paper-results/article/`, including editable ggplot
+objects returned by the function, a combined figure PDF, individual table
+fragments, numerical CSVs and a standalone LaTeX preview. Python is not required.
+See [ARTICLE_OUTPUTS.md](ARTICLE_OUTPUTS.md) for settings and Overleaf commands.
+
+For archived 0.1.0 runs this article exporter explicitly withholds the known
+corrupted IHR/HR1/NET forecasts. Their reduced-form IRFs remain included. A new
+run made with a corrected package includes all saved methods automatically.
 
 ## Changing the experiment
 

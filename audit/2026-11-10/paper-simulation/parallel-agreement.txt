@@ -1,3 +1,0 @@
-irf : sequential and four-worker summaries are identical
-forecast : sequential and four-worker summaries are identical
-forecast_gap : sequential and four-worker summaries are identical

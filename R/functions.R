@@ -182,20 +182,23 @@ print.varma <- function(x, ...) {
 #' residuals method for varma object
 #'
 #' @param object a varma object.
-#' @param Y data matrix if NULL the y slot in the varma object is used
-#' @param recompute logical, if FALSE and the varma object contains residuals,
-#' the function returns those residuals, if TRUE the function recomputes the
-#' residuals.
+#' @param Y optional new data matrix. Supplying Y always recomputes residuals
+#' for those data; otherwise the fitted object's y slot is used when needed.
+#' @param recompute logical, default FALSE. Return the fitted estimator's stored
+#' residuals when available and Y is not supplied. TRUE applies the fitted
+#' model's zero-initialized recursive inverse filter instead.
 #' @param ... not used.
 #'
-#' @returns Matrix of residuals. If recompute is TRUE, the residuals are always
-#' recomputed by this function, if it is FALSE and the varma object slot
-#' residuals is not NULL, then these residuals are returned.
+#' @returns Matrix of residuals. Stored residuals retain the estimator's
+#' convention: IHR/NET regression innovation proxies, conditional recursive
+#' errors, or likelihood-based Kalman innovations. Recursive residuals can
+#' grow explosively for noninvertible fitted MA polynomials; they are not a
+#' substitute for the regression innovation proxies used by IHR or NET.
 #'
 #' @method residuals varma
 #' @export
-residuals.varma <- function(object, Y = NULL, recompute = TRUE, ...) {
-  if (!is.null(object$residuals) && !recompute) return(object$residuals)
+residuals.varma <- function(object, Y = NULL, recompute = FALSE, ...) {
+  if (is.null(Y) && !is.null(object$residuals) && !recompute) return(object$residuals)
   if (is.null(Y)) Y <- object$y
   if (is.null(Y)) stop("Y and object$y both missing")
   Y <- as.matrix(Y); mpq <- dim(object); m <- mpq[1L]
@@ -716,9 +719,13 @@ autocov_an <- function(varma, maxlag = 10) {
 #'
 #' @returns If ret = "varma" a varma object, otherwise a list with the following elements:
 #' coefficients, regression residuals, fitted.values, effects, weights, rank,
-#' df.residual, qr, n_iter, converged, rows, and res_cov. A varma object instead
-#' stores recursive innovations computed from its final coefficients, with initial
-#' zeros marked by residuals_start, and convergence/iterations diagnostics.
+#' df.residual, qr, n_iter, converged, rows, and res_cov. A varma object stores
+#' the final regression's innovation proxies, aligned with Y and with excluded
+#' initial rows marked by residuals_start. Forecasting and residual bootstrap
+#' use these proxies. They need not equal a zero-initialized inverse-filter
+#' recursion, especially when iteration has not converged or the fitted MA
+#' polynomial is noninvertible. The reported Gaussian criterion is labeled
+#' regression_approximation for q > 0, not an exact conditional likelihood.
 #'
 #' @export
 fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
@@ -773,8 +780,17 @@ fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
   reg$res_cov <- crossprod(reg$residuals)/nrow(reg$residuals)
   if (ret == "regression") { reg$design <- X; return(reg) }
   fit <- .varma_from_coefficients(reg$coefficients,p,q,intercept,m)
-  .varma_finish(fit,Y,fn_name,length(reg$coefficients),rank=reg$rank,
-                convergence=if (converged) 0L else 1L,iterations=it)
+  # Retain the innovations estimated by IHR. Inverting an unrestricted MA
+  # polynomial here can amplify initialization errors exponentially, even
+  # though the least-squares residuals and short-horizon forecasts are finite.
+  Eout <- matrix(0,n,m); Eout[rows,] <- reg$residuals
+  fit <- .varma_finish(fit,Y,fn_name,length(reg$coefficients),start=rows[1L]-1L,
+    rank=reg$rank,convergence=if (converged) 0L else 1L,iterations=it,
+    residuals=if (q) Eout else NULL)
+  fit$regression_residuals <- reg$residuals
+  fit$regression_rows <- rows
+  fit$pilot_order <- if (q) r else 0L
+  fit
 }
 
 
@@ -804,10 +820,12 @@ fit_varma_ihr <- function(Y, p = 1, q = 1, intercept = TRUE,
 #' @param parallel TRUE if parallelization is required
 #' @param n_cores integer number of cores to use, if parallel = TRUE
 #'
-#' @returns A varma object with refreshed recursive innovations and covariance, or
+#' @returns A varma object with final post-SUR regression innovation proxies
+#' and their covariance, or
 #' a list of glmnet fits (fixed lambda) or cv.glmnet fits (a penalty path).
 #' SUR uses the selected support. The parameter count includes innovation covariance
 #' parameters and is a nominal count, not a general effective-df formula for penalized fits.
+#' For q > 0 the Gaussian criterion is labeled regression_approximation.
 #' @importFrom stats coef
 #' @export
 fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
@@ -863,9 +881,12 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
     if (any(active)) coeff[active] <- sur_cpp(xlist,ylist,crossprod(resid)/nrow(resid))
   }
   fit <- .varma_from_coefficients(coeff,p,q,intercept,m)
+  reg_errors <- YY-XX %*% coeff
+  Eout <- matrix(0,nrow(Y),m); Eout[ihr$rows,] <- reg_errors
   fit <- .varma_finish(fit,Y,"fit_varma_net",sum(coeff != 0),
-                       convergence=if (ihr$converged) 0L else 1L,iterations=ihr$n_iter)
-  fit$regression_residuals <- YY-XX %*% coeff
+    start=ihr$rows[1L]-1L,convergence=if (ihr$converged) 0L else 1L,
+    iterations=ihr$n_iter,residuals=if (q) Eout else NULL)
+  fit$regression_residuals <- reg_errors
   fit$regression_rows <- ihr$rows
   fit
 }

@@ -41,10 +41,15 @@ check("one-series and pure-MA boundary orders",{
     invisible(capture.output(print(a)))
   }
 })
-check("IHR stores innovations consistent with final coefficients",{
+check("IHR preserves the final regression innovation proxies",{
   for (iterations in c(1,50)) {
     f <- fit_varma_ihr(Y,1,1,FALSE,maxit=iterations,r=8)
+    reg <- fit_varma_ihr(Y,1,1,FALSE,maxit=iterations,r=8,ret="regression")
     close(f$residuals,residuals(f)); stopifnot(nrow(f$residuals)==nrow(Y))
+    close(f$residuals[reg$rows,,drop=FALSE],reg$residuals)
+    close(f$cov,reg$res_cov)
+    stopifnot(f$residuals_start==min(reg$rows),f$nobs==length(reg$rows),
+      f$residuals_type=="regression",f$likelihood_type=="regression_approximation")
   }
   f <- fit_varma_ihr(Y,1,0,TRUE)
   E <- f$residuals[-1,,drop=FALSE]
@@ -53,13 +58,15 @@ check("IHR stores innovations consistent with final coefficients",{
   stopifnot(attr(logLik(f),"df")==9,nobs(f)==239,inherits(logLik(f),"logLik"))
   close(AIC(f),-2*f$loglik+2*f$npar)
 })
-check("NET honours fixed lambda, SUR refreshes residuals, and scalar input works",{
+check("NET honours fixed lambda, SUR refreshes regression errors, and scalar input works",{
   a <- fit_varma_net(Y,1,1,FALSE,lambda=1e-6,relax=FALSE,sur=FALSE,r=8,maxit=5)
   b <- fit_varma_net(Y,1,1,FALSE,lambda=1e6,relax=FALSE,sur=FALSE,r=8,maxit=5)
   stopifnot(max(abs(c(a$ar,a$ma)))>.01,max(abs(c(b$ar,b$ma)))<1e-8)
   for (relax in c(FALSE,TRUE)) {
     f <- fit_varma_net(Y,1,1,FALSE,lambda=.05,relax=relax,sur=TRUE,r=8,maxit=5)
-    close(f$residuals,residuals(f)); close(f$cov,crossprod(f$residuals[-1,,drop=FALSE])/239)
+    close(f$residuals,residuals(f))
+    close(f$residuals[f$regression_rows,,drop=FALSE],f$regression_residuals)
+    close(f$cov,crossprod(f$regression_residuals)/length(f$regression_rows))
   }
   f <- fit_varma_net(Y[,1,drop=FALSE],1,0,lambda=.01,relax=FALSE)
   stopifnot(all(is.finite(f$ar)))
@@ -67,6 +74,32 @@ check("NET honours fixed lambda, SUR refreshes residuals, and scalar input works
   beta <- internal("sur_cpp")(list(matrix(0,20,0),matrix(rnorm(40),20,2)),
                                list(matrix(rnorm(20)),matrix(rnorm(20))),diag(2))
   stopifnot(length(beta)==2L)
+})
+check("noninvertible IHR fits do not replace estimated innovations with an explosive inverse filter",{
+  # Exact saved stream: Design 1, n=400, replication 251 in the paper run.
+  # Its unrestricted fit has MA radius 2.404; inverse filtering produces
+  # errors around 3e151 although its regression residuals remain around 3.5.
+  assign(".Random.seed",c(10407L,701579487L,-1689307402L,-2084062184L,
+    -2072813297L,764475570L,-963424091L),.GlobalEnv)
+  aa<-bb<-array(0,c(2,2,1));aa[1,2,1]<-.145706726703793;bb[1,2,1]<-.730055906175879
+  path<-sim_varma(varma(ar=aa,ma=bb,cov=matrix(c(1,.3,.3,1),2)),405,burn_in=100)
+  yy<-path[1:400,,drop=FALSE]
+  reg<-fit_varma_ihr(yy,1,1,FALSE,ret="regression")
+  f<-fit_varma_ihr(yy,1,1,FALSE)
+  close(c(f$ar,f$ma),as.numeric(t(reg$coefficients)))
+  stopifnot(max(Mod(inv_roots(f)$ma))>2, f$convergence==1L)
+  close(f$residuals[reg$rows,,drop=FALSE],reg$residuals)
+  stopifnot(max(abs(f$residuals))<5,all(is.finite(f$cov)))
+  recursive<-residuals(f,recompute=TRUE)
+  stopifnot(max(abs(recursive))>1e100)
+  # Explicit new data must not accidentally return the stored full-sample errors.
+  new_errors<-residuals(f,Y=yy[1:30,,drop=FALSE])
+  stopifnot(nrow(new_errors)==30)
+  close(new_errors,recursive[1:30,,drop=FALSE])
+  fc<-predict(f,5,cov=FALSE)
+  stopifnot(all(is.finite(fc)),mean((fc-path[401:405,,drop=FALSE])^2)<10)
+  old<-f;old$residuals<-recursive
+  stopifnot(max(abs(predict(old,5,cov=FALSE)))>1e150)
 })
 check("RBY score agrees with finite differences of concentrated Gaussian likelihood",{
   aa <- A; bb <- B; cc <- c(.1,-.2)

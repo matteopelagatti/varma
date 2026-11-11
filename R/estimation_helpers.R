@@ -61,8 +61,11 @@
 }
 
 .varma_finish <- function(fit, Y, method, dynamic_npar, start = max(dim(fit)[-1L]),
-                          rank = NULL, convergence = NULL, iterations = NULL) {
-  E <- residuals.varma(fit, Y)
+                          rank = NULL, convergence = NULL, iterations = NULL,
+                          residuals = NULL) {
+  recursive <- is.null(residuals)
+  E <- if (recursive) residuals.varma(fit, Y, recompute=TRUE) else as.matrix(residuals)
+  if (!identical(dim(E),dim(Y))) stop("Residuals must be aligned with Y")
   used <- seq.int(start + 1L, nrow(Y))
   S <- crossprod(E[used, , drop = FALSE])/length(used)
   fit$cov <- S
@@ -73,12 +76,13 @@
   fit$y <- Y
   fit$residuals <- E
   fit$residuals_start <- start + 1L
+  fit$residuals_type <- if (recursive) "recursive" else "regression"
   fit$estimation_method <- method
   fit$rank <- rank
   fit$convergence <- convergence
   fit$iterations <- iterations
   fit$stability <- is_stable(fit)
-  fit$likelihood_type <- "conditional"
+  fit$likelihood_type <- if (recursive) "conditional" else "regression_approximation"
   fit
 }
 

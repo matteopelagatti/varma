@@ -1,18 +1,21 @@
-# Usage: Rscript run_paper_simulations.R <benchmark|full|summary> <output-dir> [workers] [replications]
+# Usage: Rscript run_paper_simulations.R <benchmark|full|summary> [output-dir] [workers] [replications]
+# Full runs and summaries default to paper-results in the working directory.
 # Set thread limits before loading numerical libraries. Parallelism is across
 # simulation replications, not inside each estimation routine.
 Sys.setenv(OMP_NUM_THREADS="1",OPENBLAS_NUM_THREADS="1",MKL_NUM_THREADS="1",
            VECLIB_MAXIMUM_THREADS="1",BLIS_NUM_THREADS="1")
 args <- commandArgs(trailingOnly=TRUE)
-if(length(args)<2L) stop(paste(
-  "Usage: Rscript run_paper_simulations.R <benchmark|full|summary> <output-dir> [workers] [replications]",
+if(length(args)<1L || length(args)>4L) stop(paste(
+  "Usage: Rscript run_paper_simulations.R <benchmark|full|summary> [output-dir] [workers] [replications]",
   "Example: Rscript run_paper_simulations.R benchmark timing-test 4 5",
   "Example: Rscript run_paper_simulations.R full paper-results 4 1000",sep="\n"))
 library(varma)
 if(!exists("run_varma_paper_simulation",asNamespace("varma"),inherits=FALSE))
   stop("Install the updated varma package supplied with this driver")
 mode <- match.arg(args[1L],c("benchmark","full","summary"))
-output <- args[2L]
+if(mode != "summary" && utils::packageVersion("varma") < "0.1.1")
+  stop("Install varma >= 0.1.1 before running simulations; earlier forecasts contain a known bug")
+output <- if(length(args)>=2L) args[2L] else if(mode=="benchmark") "timing-test" else "paper-results"
 workers <- if(length(args)>=3L) as.integer(args[3L]) else 1L
 repetitions <- if(length(args)>=4L) as.integer(args[4L]) else if(mode=="benchmark") 5L else 1000L
 if(mode=="benchmark") {
