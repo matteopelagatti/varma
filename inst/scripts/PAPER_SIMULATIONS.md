@@ -21,7 +21,7 @@ simulation innovations. All methods receive the same sample in a replication.
 Install R first. For the supplied Windows binary, use **64-bit R 4.5.x**. In R:
 
 ```r
-install.packages(c("Rcpp", "RcppArmadillo", "KFAS", "FKF.SP", "Matrix",
+install.packages(c("Rcpp", "RcppArmadillo", "KFAS", "FKF", "Matrix",
                    "future", "future.apply", "glmnet"))
 install.packages("varma_0.1.1.zip", repos=NULL, type="win.binary")
 library(varma)
@@ -38,6 +38,25 @@ A source installation needs the appropriate compiler toolchain: Rtools on
 Windows, or the normal R/C++ build tools on Linux/macOS. The source and Windows
 binary in the dated replication bundle contain the same changes. Installing
 dependencies needs internet access; running the simulation does not.
+
+### R 4.6.x and FKF.SP
+
+From varma 0.1.2, `fit_varma_fkf()` uses `FKF::fkf()` and the dependency is
+`FKF`, available on CRAN. The archived package `FKF.SP` is no longer required.
+The default paper experiment continues to use `fit_varma_skf()`.
+After installing the required dependencies listed above, install the new
+source archive with:
+
+```r
+install.packages("varma_0.1.2.tar.gz", repos=NULL, type="source")
+```
+
+On Windows use the Rtools release recommended for your R version. The older supplied
+R 4.5 binary is not the build intended for R 4.6. Default simulation settings
+are unchanged; the explicitly selected FKF backend now uses the multivariate
+filter and its `ret="ss"` output has FKF's field names. Manifests include the package
+version, so finish existing runs with their original version rather than
+mixing 0.1.1 and 0.1.2 checkpoints.
 
 ## Benchmark, then run
 

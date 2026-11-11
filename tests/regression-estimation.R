@@ -137,8 +137,9 @@ check("Kalman acceleration waits for full Riccati convergence",{
   close(as.numeric(Pnear),1/(1-.999^2),tol=1e-8)
 })
 check("likelihood backends return matching coefficients, covariances, and stationary initialisation",{
+  backends <- list(fit_varma_kfas,fit_varma_skf,fit_varma_fkf)
   # Pure VAR has a well-behaved likelihood and provides a shared backend benchmark.
-  fits <- lapply(list(fit_varma_kfas,fit_varma_fkf,fit_varma_skf),function(fn)
+  fits <- lapply(backends,function(fn)
     fn(Y,1,0,TRUE,control=list(maxit=300,reltol=1e-10)))
   for (f in fits) {
     ss<-varma_to_ss(f)
@@ -154,20 +155,24 @@ check("likelihood backends return matching coefficients, covariances, and statio
     invisible(capture.output(print(f)))
     stopifnot(identical(dim(predict(f,1)$cov),c(2L,2L,1L)))
   }
-  close(fits[[1]]$loglik,fits[[2]]$loglik,1e-6)
-  close(fits[[1]]$loglik,fits[[3]]$loglik,1e-6)
-  close(predict(fits[[1]],3)$mean,predict(fits[[3]],3)$mean,1e-4)
-  for (fn in list(fit_varma_kfas,fit_varma_fkf,fit_varma_skf)) {
+  for (f in fits[-1L]) {
+    close(fits[[1]]$loglik,f$loglik,1e-6)
+    close(predict(fits[[1]],3)$mean,predict(f,3)$mean,1e-4)
+  }
+  for (fn in backends) {
     f <- fn(Y[,1,drop=FALSE],0,1,TRUE,control=list(maxit=300))
     stopifnot(identical(dim(predict(f,2)$cov),c(1L,1L,2L)))
   }
   # Hold coefficients at a common pilot to test higher-order packing independently
   # of optimiser paths and local minima.
-  higher <- lapply(list(fit_varma_kfas,fit_varma_fkf,fit_varma_skf),function(fn)
+  higher <- lapply(backends,function(fn)
     suppressWarnings(fn(Y,2,2,FALSE,control=list(maxit=0))))
   for (f in higher) close(f$transition_matrix,varma_to_ss(f)$T)
-  close(higher[[1]]$loglik,higher[[2]]$loglik,1e-7)
-  close(higher[[1]]$loglik,higher[[3]]$loglik,1e-7)
+  for (f in higher[-1L]) close(higher[[1]]$loglik,f$loglik,1e-7)
+  raw <- suppressWarnings(fit_varma_fkf(Y,2,2,FALSE,ret="ss",control=list(maxit=0)))
+  stopifnot(inherits(raw,"fkf"),all(raw$status==0L))
+  close(t(raw$vt),higher[[3L]]$residuals,1e-10)
+  close(raw$logLik,higher[[3L]]$loglik,1e-10)
 })
 check("IRFs, prediction covariance, and identification",{
   f<-varma(ar=A,ma=B,cov=S)

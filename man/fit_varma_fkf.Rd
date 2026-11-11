@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{fit_varma_fkf}
 \alias{fit_varma_fkf}
-\title{VARMA estimation using maximum likelihood in state-space form (FKF.SP)}
+\title{VARMA estimation using maximum likelihood in state-space form (FKF)}
 \usage{
 fit_varma_fkf(
   Y,
@@ -35,9 +35,13 @@ A varma object or a list with the matrices of the state-space form,
 according to the choice of the `ret` parameter.
 }
 \description{
-VARMA estimation using maximum likelihood in state-space form (FKF.SP)
+VARMA estimation using maximum likelihood in state-space form (FKF)
 }
 \details{
+Uses \code{FKF::fkf()} for multivariate Kalman filtering.
+With \code{ret="ss"}, the return value contains FKF's filter output,
+including \code{vt}, \code{Ft}, \code{at}, \code{Pt}, and \code{logLik}.
+
 The Gaussian likelihood uses a stationary initial covariance recomputed
 at each candidate. Optimisation is restricted to stable AR and invertible MA
 polynomials. The returned optim.out records numerical convergence; a local optimum

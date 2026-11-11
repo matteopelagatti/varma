@@ -147,9 +147,14 @@
     mod$Q[,,1] <- z$Q; mod$P1 <- z$P
     mod
   }
-  fkf_run <- function(z,verbose=FALSE) FKF.SP::fkf.SP(
-    a0=numeric(d),P0=z$P,dt=matrix(0,d,1),ct=matrix(0,m,1),
-    Tt=z$T,Zt=ss0$Z,HHt=z$W,GGt=numeric(m),yt=t(z$y),verbose=verbose)
+  fkf_run <- function(z) {
+    ans <- FKF::fkf(a0=numeric(d),P0=z$P,dt=matrix(0,d,1),ct=matrix(0,m,1),
+      Tt=array(z$T,c(d,d,1L)),Zt=array(ss0$Z,c(m,d,1L)),
+      HHt=array(z$W,c(d,d,1L)),GGt=array(0,c(m,m,1L)),yt=t(z$y))
+    if (anyNA(ans$status) || any(ans$status != 0L) || !is.finite(ans$logLik))
+      stop("FKF filtering failed: singular or invalid innovation covariance")
+    ans
+  }
   objective <- function(pars) {
     val <- tryCatch({
       if (backend == "skf") return({
@@ -160,7 +165,7 @@
       if (is.null(z)) return(1e100)
       switch(backend,
         kfas = as.numeric(stats::logLik(kfas_model(z),check.model=FALSE)),
-        fkf = as.numeric(fkf_run(z)),
+        fkf = as.numeric(fkf_run(z)$logLik),
         skf = kalmanLogLik(Matrix::Matrix(z$T,sparse=TRUE),Matrix::Matrix(z$R,sparse=TRUE),
                            z$Q,matrix(0,d,1),z$P,t(z$y)))
     },error=function(e) -Inf)
@@ -181,13 +186,12 @@
     fit$loglik <- as.numeric(stats::logLik(mod))
     raw <- list(model=mod,optim.out=opt)
   } else if (backend == "fkf") {
-    raw <- fkf_run(z,TRUE)
-    # FKF.SP also processes components sequentially; its v is not the joint
-    # vector innovation. at contains the state prediction before observing y_t.
-    fit$residuals <- z$y-t(raw$at[seq_len(m),seq_len(n),drop=FALSE])
+    raw <- fkf_run(z)
+    # FKF returns joint prediction errors (observations x time).
+    fit$residuals <- t(raw$vt)
     fit$state_pred_mean <- raw$at[,n+1L]
     fit$state_pred_cov <- matrix(raw$Pt[,,n+1L],d,d)
-    fit$loglik <- -objective(opt$par)
+    fit$loglik <- as.numeric(raw$logLik)
     raw$R <- z$R; raw$Q <- z$Q; raw$HH <- z$W; raw$optim.out <- opt
   } else {
     aa <- matrix(0,d,n+1L)

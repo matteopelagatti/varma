@@ -1,7 +1,7 @@
 Package: varma
 Type: Package
 Title: Tools for Vector Autoregressive Moving-Average (VARMA) Model Analysis
-Version: 0.1.1
+Version: 0.1.2
 Authors@R: c(
     person(
       "Matteo", "Pelagatti",
@@ -25,7 +25,7 @@ Imports:
   Rcpp,
   stats,
   KFAS (>= 1.6.0),
-  FKF.SP (>= 0.3.4),
+  FKF (>= 0.2.6),
   Matrix,
   parallel,
   future (>= 1.67.0),

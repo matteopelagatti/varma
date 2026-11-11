@@ -920,7 +920,11 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
 }
 
 
-#' VARMA estimation using maximum likelihood in state-space form (FKF.SP)
+#' VARMA estimation using maximum likelihood in state-space form (FKF)
+#'
+#' @details Uses \code{FKF::fkf()} for multivariate Kalman filtering.
+#' With \code{ret="ss"}, the return value contains FKF's filter output,
+#' including \code{vt}, \code{Ft}, \code{at}, \code{Pt}, and \code{logLik}.
 #'
 #' @param Y a (n x m) matrix with the time series.
 #' @param p order of the AR part.
