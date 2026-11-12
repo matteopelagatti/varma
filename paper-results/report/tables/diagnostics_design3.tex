@@ -5,29 +5,35 @@
 n & Method & Attempts & Fit fail & IRF fail & Fcst fail & Nonconv. & AR unstable & MA noninv. & Qualified \\\midrule
 100 & ECH oracle & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 100 & ECH selected & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
+100 & CML & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 100 & IHR & 1000 & 0 & 0 & 0 & 964 & 218 & 307 &   36 \\
 100 & HR1 & 1000 & 0 & 0 & 0 &   0 &   0 &  21 &  979 \\
 100 & NET & 1000 & 0 & 0 & 0 & 964 &   3 &   5 &   36 \\
 100 & RBY & 1000 & 0 & 0 & 0 &  30 &   0 &   0 &  970 \\
 100 & DPF & 1000 & 0 & 0 & 0 &   0 &   8 &   9 &  989 \\
 100 & MLE & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
+100 & VAR (BIC) & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 200 & ECH oracle & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 200 & ECH selected & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
+200 & CML & 1000 & 0 & 0 & 0 &   1 &   0 &   0 &  999 \\
 200 & IHR & 1000 & 0 & 0 & 0 & 971 & 196 & 274 &   29 \\
 200 & HR1 & 1000 & 0 & 0 & 0 &   0 &   1 &   2 &  998 \\
 200 & NET & 1000 & 0 & 0 & 0 & 971 &   1 &   2 &   29 \\
 200 & RBY & 1000 & 0 & 0 & 0 &  69 &   0 &   0 &  931 \\
 200 & DPF & 1000 & 0 & 0 & 0 &   0 &   1 &   0 &  999 \\
 200 & MLE & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
+200 & VAR (BIC) & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 400 & ECH oracle & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 400 & ECH selected & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
+400 & CML & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 400 & IHR & 1000 & 0 & 0 & 0 & 952 & 226 & 250 &   48 \\
 400 & HR1 & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 400 & NET & 1000 & 0 & 0 & 0 & 952 &   0 &   0 &   48 \\
 400 & RBY & 1000 & 0 & 0 & 0 &  83 &   0 &   0 &  917 \\
 400 & DPF & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
-400 & MLE & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
+400 & MLE & 1000 & 0 & 0 & 0 &   1 &   0 &   0 &  999 \\
+400 & VAR (BIC) & 1000 & 0 & 0 & 0 &   0 &   0 &   0 & 1000 \\
 \bottomrule\end{tabular}
 \par\medskip
-\begin{minipage}{0.98\linewidth}\footnotesize Counts refer to attempted replications. Categories overlap. NET's convergence field concerns its IHR pilot. HR1 and DPF have no iterative convergence requirement. Forecast failures include nonfinite squared errors; finite extreme outputs remain available. Convergence does not certify a global maximum.\end{minipage}
+\begin{minipage}{0.98\linewidth}\footnotesize Counts refer to attempted replications. Categories overlap. NET's convergence field concerns its IHR pilot. HR1, DPF and VAR (BIC) have no iterative convergence requirement. Forecast failures include nonfinite squared errors; finite extreme outputs remain available. Convergence does not certify a global maximum.\end{minipage}
 \end{table}

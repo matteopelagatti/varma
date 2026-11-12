@@ -1,0 +1,21 @@
+\begin{table}[p]\centering
+\caption{VAR lag selection by BIC.}
+\small
+\begin{tabular}{rrrrrrrrr}\toprule
+Design & n & Attempts & Returned & Mean lag & Median lag & Maximum candidate & At maximum (\%) & Bound capped \\\midrule
+model1 & 100 & 1000 & 1000 & 1.000 & 1.000 & 10 & 0.000 & 0 \\
+model2 & 100 & 1000 & 1000 & 2.238 & 2.000 & 10 & 0.000 & 0 \\
+model3 & 100 & 1000 & 1000 & 1.022 & 1.000 & 10 & 0.000 & 0 \\
+model4 & 100 & 1000 & 1000 & 2.008 & 2.000 & 10 & 0.000 & 0 \\
+model1 & 200 & 1000 & 1000 & 1.001 & 1.000 & 13 & 0.000 & 0 \\
+model2 & 200 & 1000 & 1000 & 3.048 & 3.000 & 13 & 0.000 & 0 \\
+model3 & 200 & 1000 & 1000 & 1.062 & 1.000 & 13 & 0.000 & 0 \\
+model4 & 200 & 1000 & 1000 & 2.026 & 2.000 & 13 & 0.000 & 0 \\
+model1 & 400 & 1000 & 1000 & 1.000 & 1.000 & 15 & 0.000 & 0 \\
+model2 & 400 & 1000 & 1000 & 4.621 & 5.000 & 15 & 0.000 & 0 \\
+model3 & 400 & 1000 & 1000 & 1.263 & 1.000 & 15 & 0.000 & 0 \\
+model4 & 400 & 1000 & 1000 & 2.193 & 2.000 & 15 & 0.000 & 0 \\
+\bottomrule\end{tabular}
+\par\medskip
+\begin{minipage}{0.98\linewidth}\footnotesize Mean and median lags and the boundary percentage use returned fits. BIC uses a common sample, followed by an OLS refit on all rows available at the selected order. Bound capped counts automatic bounds reduced by the degrees-of-freedom safeguard.\end{minipage}
+\end{table}

@@ -1,13 +1,13 @@
 # VARMA simulation report
 
-Complete run: 12,000 saved replications; 96,000 attempted estimates; 4 designs.
+Complete run: 12,000 saved replications; 120,000 attempted estimates; 4 designs.
 Sample sizes: 100, 200, 400. Planned replications per cell: 1000. Seed: 20261110.
-Recorded compute/checkpoint elapsed time: 1.80 hours; worker counts: 7.
-MLE backend: skf; the echelon estimators use conditional Gaussian likelihood.
+Recorded compute/checkpoint elapsed time: 1.41 hours; worker counts: 7.
+MLE backend: skf; initial covariance: stationary; pilot: HR1. CML and the echelon estimators use conditional Gaussian likelihood.
 
 Primary results retain every finite loss, including extreme outputs and nonconverged estimates.
 Qualified results require stable AR, invertible MA and reported convergence where applicable.
-NET's convergence flag concerns its IHR pilot; HR1 and DPF have no iterative flag.
+NET's convergence flag concerns its IHR pilot; HR1, DPF and VAR (BIC) have no iterative flag.
 The paper-style trimmed comparison removes 1.0% of replication losses from each tail.
 Neither availability nor qualification makes these unconditional risks of an algorithm that can fail.
 
@@ -16,7 +16,7 @@ MCSEs use independent replication-level losses. Heavy tails can make them unreli
 Relative errors pair each method with its benchmark on common usable draws.
 
 This run evaluates IRFs and point forecasts. It does not evaluate FEVDs, bootstrap coverage,
-prediction-interval coverage, or fitted VAR benchmarks. These require additional experiments.
+or prediction-interval coverage. These require additional experiments.
 
 ## Files
 
@@ -60,26 +60,18 @@ runs the reported elapsed total is the sum of logged invocations, not calendar t
 ## Overall diagnostics (counts)
 
 ```
-       method fit_failures irf_failures forecast_failures nonconverged unstable_ar
-          DGP            0            0                 0            0           0
-          DPF            0            0                 0            0          18
-   ECH_oracle            0            0                 0            0           0
- ECH_selected            0            0                 0            0           0
-          HR1            0            0                 0            0           3
-          IHR            0            0                 0         6650        1117
-          MLE            0            0                 0            0           0
-          NET            0            0                 0         6650         183
-          RBY            0            0                 0          338           0
- noninvertible_ma qualified
-                0     12000
-               12     11977
-                0     12000
-                0     12000
-               25     11973
-             1374      5350
-                0     12000
-              536      5152
-                0     11662
+       method fit_failures irf_failures forecast_failures nonconverged unstable_ar noninvertible_ma qualified
+          CML            0            0                 0            1           0                0     11999
+          DGP            0            0                 0            0           0                0     12000
+          DPF            0            0                 0            0          18               12     11977
+   ECH_oracle            0            0                 0            0           0                0     12000
+ ECH_selected            0            0                 0            0           0                0     12000
+          HR1            0            0                 0            0           3               25     11973
+          IHR            0            0                 0         6650        1117             1374      5350
+          MLE            0            0                 0            1           0                0     11999
+          NET            0            0                 0         6650         183              536      5152
+          RBY            0            0                 0          338           0                0     11662
+      VAR_BIC            0            0                 0            0           1                0     11999
 ```
 
 ## Exact index recovery at the largest sample size
