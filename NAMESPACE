@@ -45,20 +45,26 @@ export(varma)
 export(varma_paper_designs)
 export(varma_to_ss)
 import(Rcpp)
-importFrom(KFAS,KFS)
-importFrom(KFAS,SSMcustom)
-importFrom(KFAS,SSModel)
-importFrom(KFAS,fitSSM)
+importFrom(KFAS,
+  KFS,
+  SSMcustom,
+  SSModel,
+  fitSSM
+)
 importFrom(grDevices,rgb)
-importFrom(graphics,abline)
-importFrom(graphics,lines)
-importFrom(graphics,mtext)
-importFrom(graphics,par)
-importFrom(graphics,points)
-importFrom(graphics,polypath)
-importFrom(stats,coef)
-importFrom(stats,logLik)
-importFrom(stats,nobs)
-importFrom(stats,predict)
+importFrom(graphics,
+  abline,
+  lines,
+  mtext,
+  par,
+  points,
+  polypath
+)
+importFrom(stats,
+  coef,
+  logLik,
+  nobs,
+  predict
+)
 importFrom(utils,tail)
 useDynLib(varma, .registration = TRUE)

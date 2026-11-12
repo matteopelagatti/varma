@@ -1,0 +1,33 @@
+\begin{table}[p]\centering
+\caption{Design 4: IRF accuracy (available).}
+\small
+\begin{tabular}{rrrrrrrr}\toprule
+n & Method & B & RMSE & MCSE & Trimmed & Relative RMSE & Paired B \\\midrule
+100 & ECH oracle & 1000 & 0.240 & 0.002 & 0.238 & 1.000 & 1000 \\
+100 & ECH selected & 1000 & 0.194 & 0.002 & 0.191 & 0.807 & 1000 \\
+100 & IHR & 1000 & 0.199 & 0.002 & 0.196 & 0.827 & 1000 \\
+100 & HR1 & 1000 & 0.214 & 0.002 & 0.212 & 0.892 & 1000 \\
+100 & NET & 1000 & 0.209 & 0.002 & 0.207 & 0.871 & 1000 \\
+100 & RBY & 1000 & 0.230 & 0.002 & 0.227 & 0.957 & 1000 \\
+100 & DPF & 1000 & 0.230 & 0.002 & 0.228 & 0.958 & 1000 \\
+100 & MLE & 1000 & 0.240 & 0.004 & 0.233 & 0.999 & 1000 \\
+200 & ECH oracle & 1000 & 0.142 & 0.001 & 0.140 & 1.000 & 1000 \\
+200 & ECH selected & 1000 & 0.125 & 0.001 & 0.124 & 0.882 & 1000 \\
+200 & IHR & 1000 & 0.131 & 0.001 & 0.129 & 0.923 & 1000 \\
+200 & HR1 & 1000 & 0.133 & 0.001 & 0.132 & 0.937 & 1000 \\
+200 & NET & 1000 & 0.142 & 0.001 & 0.141 & 1.005 & 1000 \\
+200 & RBY & 1000 & 0.140 & 0.001 & 0.138 & 0.985 & 1000 \\
+200 & DPF & 1000 & 0.143 & 0.001 & 0.142 & 1.009 & 1000 \\
+200 & MLE & 1000 & 0.154 & 0.005 & 0.142 & 1.087 & 1000 \\
+400 & ECH oracle & 1000 & 0.092 & 7.52e-04 & 0.091 & 1.000 & 1000 \\
+400 & ECH selected & 1000 & 0.092 & 7.14e-04 & 0.091 & 0.996 & 1000 \\
+400 & IHR & 1000 & 0.088 & 6.89e-04 & 0.087 & 0.957 & 1000 \\
+400 & HR1 & 1000 & 0.087 & 7.22e-04 & 0.087 & 0.948 & 1000 \\
+400 & NET & 1000 & 0.105 & 8.56e-04 & 0.104 & 1.141 & 1000 \\
+400 & RBY & 1000 & 0.092 & 7.79e-04 & 0.091 & 1.002 & 1000 \\
+400 & DPF & 1000 & 0.097 & 7.08e-04 & 0.096 & 1.049 & 1000 \\
+400 & MLE & 1000 & 0.112 & 0.008 & 0.092 & 1.221 & 1000 \\
+\bottomrule\end{tabular}
+\par\medskip
+\begin{minipage}{0.98\linewidth}\footnotesize Positive lags 1-5 and all response entries are pooled within replication. RMSE is untrimmed; Trimmed removes 1.0\% of losses in each tail. MCSE is a delta-method Monte Carlo standard error, potentially unstable for heavy-tailed losses. Relative RMSE compares with oracle echelon on common usable draws. B counts usable draws. See diagnostic tables for exclusions.\end{minipage}
+\end{table}

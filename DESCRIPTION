@@ -39,4 +39,4 @@ Suggests:
   rmarkdown,
   scales
 LinkingTo: Rcpp, RcppArmadillo
-RoxygenNote: 7.3.3
+Config/roxygen2/version: 8.1.1

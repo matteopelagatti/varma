@@ -1,0 +1,36 @@
+\begin{table}[p]\centering
+\caption{Design 3: forecast accuracy at horizon 5 (qualified).}
+\small
+\begin{tabular}{rrrrrrrr}\toprule
+n & Method & B & RMSE & MCSE & Relative RMSE & Ratio MCSE & Paired B \\\midrule
+100 & DGP & 1000 & 1.051 & 0.019 & 1.000 & 0.000 & 1000 \\
+100 & ECH oracle & 1000 & 1.058 & 0.019 & 1.007 & 0.004 & 1000 \\
+100 & ECH selected & 1000 & 1.059 & 0.019 & 1.008 & 0.003 & 1000 \\
+100 & IHR &   36 & 1.068 & 0.129 & 0.965 & 0.017 &   36 \\
+100 & HR1 &  979 & 1.055 & 0.019 & 1.004 & 0.003 &  979 \\
+100 & NET &   36 & 1.090 & 0.137 & 0.984 & 0.016 &   36 \\
+100 & RBY &  970 & 1.079 & 0.020 & 1.025 & 0.005 &  970 \\
+100 & DPF &  989 & 1.065 & 0.019 & 1.013 & 0.004 &  989 \\
+100 & MLE & 1000 & 1.079 & 0.019 & 1.027 & 0.005 & 1000 \\
+200 & DGP & 1000 & 1.042 & 0.016 & 1.000 & 0.000 & 1000 \\
+200 & ECH oracle & 1000 & 1.046 & 0.017 & 1.004 & 0.002 & 1000 \\
+200 & ECH selected & 1000 & 1.045 & 0.017 & 1.003 & 0.002 & 1000 \\
+200 & IHR &   29 & 1.189 & 0.095 & 0.998 & 0.012 &   29 \\
+200 & HR1 &  998 & 1.046 & 0.017 & 1.004 & 0.003 &  998 \\
+200 & NET &   29 & 1.177 & 0.093 & 0.988 & 0.015 &   29 \\
+200 & RBY &  931 & 1.061 & 0.017 & 1.014 & 0.004 &  931 \\
+200 & DPF &  999 & 1.048 & 0.017 & 1.006 & 0.003 &  999 \\
+200 & MLE & 1000 & 1.050 & 0.017 & 1.008 & 0.004 & 1000 \\
+400 & DGP & 1000 & 1.031 & 0.017 & 1.000 & 0.000 & 1000 \\
+400 & ECH oracle & 1000 & 1.030 & 0.017 & 0.998 & 0.002 & 1000 \\
+400 & ECH selected & 1000 & 1.030 & 0.017 & 0.998 & 0.002 & 1000 \\
+400 & IHR &   48 & 1.075 & 0.069 & 1.014 & 0.012 &   48 \\
+400 & HR1 & 1000 & 1.035 & 0.017 & 1.004 & 0.002 & 1000 \\
+400 & NET &   48 & 1.069 & 0.072 & 1.009 & 0.016 &   48 \\
+400 & RBY &  917 & 1.029 & 0.018 & 0.999 & 0.003 &  917 \\
+400 & DPF & 1000 & 1.041 & 0.017 & 1.009 & 0.002 & 1000 \\
+400 & MLE & 1000 & 1.038 & 0.017 & 1.007 & 0.003 & 1000 \\
+\bottomrule\end{tabular}
+\par\medskip
+\begin{minipage}{0.98\linewidth}\footnotesize Variables are pooled within replication. RMSE is untrimmed. Relative RMSE uses DGP forecasts on the same usable replications. MCSEs use independent replication losses and a delta approximation; they can be unstable with extreme losses. Qualified requires stability, invertibility and applicable convergence. B and Paired B disclose the denominators.\end{minipage}
+\end{table}
