@@ -5,8 +5,8 @@ The default experiment reproduces the four full-precision models from
 per model/sample-size cell, zero means, no fitted intercepts, 100 discarded
 burn-in observations, IRF lags 1–5 and forecast horizons 1–5.
 
-It compares nine estimators: `ECH_oracle`, `ECH_selected`, `CML`, `IHR`, `HR1`,
-`NET`, `RBY`, `DPF`, and `MLE`. MLE defaults to `fit_varma_skf()`, which uses the
+It compares ten estimators: `ECH_oracle`, `ECH_selected`, `CML`, `IHR`, `HR1`,
+`NET`, `RBY`, `DPF`, `MLE`, and `VAR_BIC`. MLE defaults to `fit_varma_skf()`, which uses the
 compiled stationary Gaussian likelihood. DPF retains the expanded orders in
 the original experiment. The two echelon estimators use the package's
 conditional Gaussian likelihood, with population indices and indices selected
@@ -17,6 +17,30 @@ compiled conditional objective, analytic gradient and BFGS implementation
 with echelon. For Models 2 and 4, oracle echelon has equal indices and hence
 the same parameter space: CML and oracle echelon should coincide numerically.
 Their curves may overlap exactly; they are not independent algorithms there.
+
+`VAR_BIC` calls `fit_var_bic()`, selecting a pure VAR using training data only.
+The default candidate orders are 1 through `ceiling(log(n)^1.5)`: 10, 13 and
+15 at n=100, 200 and 400. All candidates are fitted on the same n-p_max rows,
+with the same intercept choice as the other estimators. After BIC selection,
+OLS refits the selected order on all n-p rows. The VAR is not forced to be
+stable; instability is reported like other numerical diagnostics. Fitting
+time includes the entire lag search and final refit. See
+[VAR_BIC_BENCHMARK.md](VAR_BIC_BENCHMARK.md) for the formula, literature and
+interpretation of the lag bound.
+
+To change the bound in the driver or package runner:
+
+```r
+estimator_args <- list(VAR_BIC=list(p_max=20)) # fixed bound
+# Or keep a growing bound but change its exponent:
+estimator_args <- list(VAR_BIC=list(lag_power=1)) # ceiling(log(n))
+```
+
+The manifest records this rule. Selected lags, full candidate BICs and search
+bounds are saved in each checkpoint even with `keep_fits=FALSE`. CSV summaries
+`var_lag_selection-summary.csv` and `var_lag_frequencies-summary.csv` report
+the lag distribution and frequency of hitting the upper bound. Article
+exports add `tables/var_lag_selection.tex` and corresponding data CSVs.
 
 Version **0.1.3** also switches state-space ML starting values to HR1. The
 default `initial_cov="stationary"` recomputes the initial state covariance
@@ -53,12 +77,12 @@ simulation innovations. All methods receive the same sample in a replication.
 
 ## Install on another computer
 
-Install R first. For the supplied Windows binary, use **64-bit R 4.5.x**. In R:
+Install R first. For the supplied 0.1.4 Windows binary, use **64-bit R 4.6.x**. In R:
 
 ```r
 install.packages(c("Rcpp", "RcppArmadillo", "KFAS", "FKF", "Matrix",
                    "future", "future.apply", "glmnet"))
-install.packages("dist/varma_0.1.3.zip", repos=NULL, type="win.binary")
+install.packages("dist/varma_0.1.4.zip", repos=NULL, type="win.binary")
 library(varma)
 ```
 
@@ -66,7 +90,7 @@ The source archive also works on other platforms or when rebuilding for a
 different R version:
 
 ```r
-install.packages("dist/varma_0.1.3.tar.gz", repos=NULL, type="source")
+install.packages("dist/varma_0.1.4.tar.gz", repos=NULL, type="source")
 ```
 
 A source installation needs the appropriate compiler toolchain: Rtools on
@@ -83,7 +107,7 @@ After installing the required dependencies listed above, install the new
 source archive with:
 
 ```r
-install.packages("dist/varma_0.1.3.tar.gz", repos=NULL, type="source")
+install.packages("dist/varma_0.1.4.tar.gz", repos=NULL, type="source")
 ```
 
 On Windows use the Rtools release recommended for your R version. The older supplied
@@ -104,7 +128,7 @@ Rscript inst/scripts/article_paper_simulations.R paper-results
 ```
 
 Run these commands from the repository root. The simulation runner requires
-varma >= 0.1.3. If the output argument is omitted, `full` and `summary` default
+varma >= 0.1.4. If the output argument is omitted, `full` and `summary` default
 to `paper-results`; `benchmark` defaults to `timing-test`. Completed checkpoints
 from a corrected run are still preserved for resuming an interrupted run.
 
@@ -121,8 +145,9 @@ controls as the full run, rather than a reduced iteration budget. Five pilot
 replications per cell give a quick timing estimate; 20 or more are preferable
 for assessing variability. Use a new output folder for each benchmark.
 
-The full experiment performs **108,000 fits** over **12,000 independently
-simulated samples**, plus the DGP forecast calculations. On a four-core laptop,
+The full experiment attempts **120,000 estimator fits** over **12,000 independently
+simulated samples**, plus the DGP forecast calculations. VAR_BIC also fits its
+candidate lag orders internally. On a four-core laptop,
 four workers usually provide a useful speed gain, but eight logical processors
 do not imply an eightfold speedup. The driver limits BLAS/OpenMP threads to one
 per process to avoid nested parallelism. Leave the computer connected to power
@@ -327,7 +352,7 @@ Other estimators keep their corrected package defaults. Local optimizer
 convergence does not certify a global maximum. No failed method is replaced
 by a different estimator and no automatic retries alter its definition.
 
-These experiments address point estimation of IRFs and forecasts. They do not
-run bootstrap coverage or FEVD experiments, or establish a VARMA-versus-VAR
-comparison; those remain separate additions to the paper. The historical
-simulation outputs and manuscript are not overwritten.
+These experiments address point estimation of IRFs and forecasts, now including
+the conventional VAR-with-BIC benchmark. Bootstrap coverage and FEVD experiments
+remain separate additions. Existing results are preserved by the restart driver;
+the manuscript is not automatically rewritten.

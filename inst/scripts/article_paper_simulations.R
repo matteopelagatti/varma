@@ -52,10 +52,11 @@
   cfg <- z$manifest$config
   withheld <- if (identical(cfg$package_version, "0.1.0"))
     intersect(methods, c("IHR", "HR1", "NET")) else character()
-  targets <- c("irf", "forecast", "forecast_gap", "failures", "timing", "selection")
+  targets <- c("irf", "forecast", "forecast_gap", "failures", "timing", "selection",
+    "var_lag_selection", "var_lag_frequencies")
   out <- lapply(targets, function(nm) {
     d <- z[[nm]]
-    if (!nrow(d)) return(d)
+    if (is.null(d) || !nrow(d)) return(data.frame())
     d <- d[d$method %in% c("DGP", methods), , drop = FALSE]
     if ("subset" %in% colnames(d)) d <- d[d$subset == subset, , drop = FALSE]
     if (nm %in% c("forecast", "forecast_gap")) {
@@ -95,7 +96,7 @@
     ggplot2::scale_x_continuous(breaks = sort(unique(d$x))) +
     ggplot2::scale_colour_manual(values = helpers$.pr_colors, breaks = methods,
       labels = labels, name = NULL) +
-    ggplot2::scale_shape_manual(values = stats::setNames(rep(c(16, 17, 15, 18, 0, 1, 2, 5, 6, 8),
+    ggplot2::scale_shape_manual(values = stats::setNames(rep(c(16, 17, 15, 18, 0, 1, 2, 5, 6, 8, 7),
       length.out = length(methods)), methods),
       breaks = methods, labels = labels, name = NULL) +
     ggplot2::scale_linetype_manual(values = stats::setNames(rep(c("solid", "dashed", "dotdash"),
@@ -322,6 +323,19 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
       "index_selection", output_dir, helpers)
   }
 
+  sl <- d$var_lag_selection
+  if(nrow(sl)) {
+    sl <- sl[order(match(sl$design,names(cfg$designs)),sl$n),]
+    rows <- vapply(seq_len(nrow(sl)),function(j) paste0(paste(c(
+      match(sl$design[j],names(cfg$designs)),sl$n[j],sl$returned[j],sl$p_max[j],
+      helpers$.pr_num(sl$mean_p[j]),helpers$.pr_num(sl$median_p[j]),
+      helpers$.pr_num(100*sl$at_max_fraction[j]),sl$capped[j]),collapse=" & ")," \\\\"),character(1))
+    tables[["var_lag_selection"]] <- .pa_table(rows,
+      c("Design","$n$","Returned","Max. lag","Mean lag","Median lag","At max. (\\%)","Capped"),
+      "VAR lag selection by BIC.",
+      paste0(status_note,"The mean, median and boundary frequency use returned fits. BIC compares candidate orders on a common sample; the selected order is refitted by OLS using all available observations. Capped counts bounds reduced by the residual degrees-of-freedom safeguard. The selected VAR lag is an approximation order and is not compared with the DGP's VARMA AR order. Full frequencies are in data/var_lag_frequencies.csv."),
+      "var_lag_selection",output_dir,helpers)
+  }
   figure_tex <- c("% Requires graphicx. Define \\varmaresults as the path to this export folder.",
     "\\providecommand{\\varmaresults}{.}")
   for (name in names(plots)) figure_tex <- c(figure_tex, "\\begin{figure}[p]\\centering",

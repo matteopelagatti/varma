@@ -7,7 +7,9 @@ Sys.setenv(OMP_NUM_THREADS="1",OPENBLAS_NUM_THREADS="1",MKL_NUM_THREADS="1",
 args <- commandArgs(trailingOnly=TRUE)
 # EDIT THESE SETTINGS before starting a new experiment. They are recorded in
 # the manifest and must remain unchanged when resuming with mode="full".
-estimator_args <- list(MLE=list(initial_cov="stationary",pilot="HR1"))
+estimator_args <- list(MLE=list(initial_cov="stationary",pilot="HR1"),
+  VAR_BIC=list(p_max=NULL,p_min=1L,lag_power=1.5))
+# VAR_BIC: automatic ceiling(log(n)^1.5) bound, or set p_max to a fixed integer.
 # To fix the initial state covariance at its stabilized pilot value:
 # estimator_args <- list(MLE=list(initial_cov="fixed",pilot="HR1"))
 if(length(args)<1L || length(args)>4L) stop(paste(
@@ -18,8 +20,8 @@ library(varma)
 if(!exists("run_varma_paper_simulation",asNamespace("varma"),inherits=FALSE))
   stop("Install the updated varma package supplied with this driver")
 mode <- match.arg(args[1L],c("benchmark","full","restart","summary"))
-if(mode != "summary" && utils::packageVersion("varma") < "0.1.3")
-  stop("Install varma >= 0.1.3 for CML, HR1 starting values and selectable Kalman initialization")
+if(mode != "summary" && utils::packageVersion("varma") < "0.1.4")
+  stop("Install varma >= 0.1.4 for the VAR-with-BIC benchmark")
 output <- if(length(args)>=2L) args[2L] else if(mode=="benchmark") "timing-test" else "paper-results"
 workers <- if(length(args)>=3L) as.integer(args[3L]) else 1L
 repetitions <- if(length(args)>=4L) as.integer(args[4L]) else if(mode=="benchmark") 5L else 1000L

@@ -46,6 +46,18 @@ the export. Relative paths are resolved from the current working directory.
 For example, first use `setwd("C:/GitHub/varma")` on this PC, or use absolute
 paths for both the script and the results directory.
 
+## VAR benchmark (version 0.1.4)
+
+`VAR_BIC` appears as "VAR (BIC)" in figures and tables. It selects a pure VAR
+by common-sample BIC, then refits on all observations available at the selected
+order. It uses no held-out outcomes or population VARMA orders.
+
+The exporter adds `tables/var_lag_selection.tex` and
+`data/var_lag_selection.csv` / `data/var_lag_frequencies.csv`.
+The selected VAR lag is an approximation order; it is not judged against the
+AR order of the VARMA DGP. The boundary percentage uses returned fits, while
+frequency CSVs use all attempts and explicitly include failed fits.
+
 ## CML and initialization settings (version 0.1.3)
 
 The new experiment includes `CML` in all figures and tables. CML uses the
@@ -53,7 +65,7 @@ same conditional likelihood and analytic gradient as echelon, without its
 coefficient restrictions. Its curve should coincide with oracle echelon for
 Models 2 and 4; overlapping curves are expected. All methods are included
 by default, including CML. Legends wrap to at most four columns and support
-all nine estimators plus DGP without dropping plotting symbols.
+all ten estimators plus DGP without dropping plotting symbols.
 
 The manifest records the state-space MLE's pilot and initial covariance
 policy. Keep these settings fixed within an experiment. Numerical results

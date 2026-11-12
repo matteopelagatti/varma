@@ -37,14 +37,15 @@ varma_paper_designs <- function() {
   list(model1=a,model2=b,model3=c,model4=d)
 }
 
-.varma_paper_method_names <- c("ECH_oracle","ECH_selected","CML","IHR","HR1","NET","RBY","DPF","MLE")
+.varma_paper_method_names <- c("ECH_oracle","ECH_selected","CML","IHR","HR1","NET","RBY","DPF","MLE","VAR_BIC")
 
 .varma_paper_controls <- function(methods,estimator_args,mle_backend) {
   defaults <- list(ECH_oracle=list(control=list(maxit=500L,reltol=1e-8)),
     ECH_selected=list(plag=5L,crit=.05,control=list(maxit=500L,reltol=1e-8)),
     CML=list(control=list(maxit=500L,reltol=1e-8)),
     IHR=list(),HR1=list(maxit=1L),NET=list(parallel=FALSE),RBY=list(),DPF=list(),
-    MLE=list(control=list(maxit=500L,reltol=1e-8),initial_cov="stationary",pilot="HR1"))
+    MLE=list(control=list(maxit=500L,reltol=1e-8),initial_cov="stationary",pilot="HR1"),
+    VAR_BIC=list(p_max=NULL,p_min=1L,lag_power=1.5))
   if(!is.list(estimator_args) || (length(estimator_args) &&
       (is.null(names(estimator_args)) || anyDuplicated(names(estimator_args)) ||
        any(!names(estimator_args)%in%.varma_paper_method_names))))
@@ -67,7 +68,8 @@ varma_paper_designs <- function() {
 .varma_paper_fit_function <- function(method,backend) switch(method,
   ECH_oracle=fit_varma_echelon,ECH_selected=fit_varma_echelon,CML=fit_varma_cml,
   IHR=fit_varma_ihr,HR1=fit_varma_ihr,NET=fit_varma_net,RBY=fit_varma_rby,
-  DPF=fit_varma_dpf,MLE=switch(backend,skf=fit_varma_skf,kfas=fit_varma_kfas,fkf=fit_varma_fkf))
+  DPF=fit_varma_dpf,VAR_BIC=fit_var_bic,
+  MLE=switch(backend,skf=fit_varma_skf,kfas=fit_varma_kfas,fkf=fit_varma_fkf))
 
 # Exact Gaussian forecast conditional on the same observed training sample.
 # It never receives held-out observations or the simulated innovations.
@@ -114,7 +116,7 @@ varma_paper_designs <- function() {
       args <- list(Y=Y,intercept=config$intercept)
       if(method%in%c("ECH_oracle","ECH_selected")) {
         args$kidx <- if(method=="ECH_oracle") cell$indices else NULL
-      } else {
+      } else if(method!="VAR_BIC") {
         args$p <- if(method=="DPF") p+(m-1L)*q else p
         args$q <- if(method=="DPF") m*q else q
       }
@@ -126,9 +128,10 @@ varma_paper_designs <- function() {
     efc <- gap <- matrix(NA_real_,h,m)
     status <- list(method=method,fit_ok=good,irf_ok=FALSE,forecast_ok=FALSE,
       fit_seconds=fitted$seconds,evaluation_seconds=0,convergence=NA_integer_,
-      convergence_type=if(method%in%c("DGP","HR1","DPF")) "not_applicable" else
+      convergence_type=if(method%in%c("DGP","HR1","DPF","VAR_BIC")) "not_applicable" else
         if(method=="NET") "IHR_pilot" else "estimator",
       ar_stable=NA,ma_invertible=NA,qualified=FALSE,indices="",index_correct=NA,
+      selected_p=NA_integer_,var_p_max=NA_integer_,var_bound_capped=NA,
       warnings=fitted$warnings,error=if(inherits(fit,"error")) conditionMessage(fit) else
         if(!good) "Estimator did not return a varma object" else "")
     if(good) {
@@ -141,6 +144,11 @@ varma_paper_designs <- function() {
       if(length(fit$kronecker_indices)) {
         status$indices <- paste(fit$kronecker_indices,collapse=",")
         status$index_correct <- identical(as.integer(fit$kronecker_indices),as.integer(cell$indices))
+      }
+      if(method=="VAR_BIC") {
+        status$selected_p <- fit$selected_order
+        status$var_p_max <- fit$lag_selection_p_max
+        status$var_bound_capped <- fit$lag_selection_capped
       }
       response <- .varma_paper_capture(if(method=="DGP") truth else irf(fit,config$irf_lags,orth="none"))
       if(!inherits(response$value,"error")) {
@@ -158,6 +166,7 @@ varma_paper_designs <- function() {
       status$evaluation_seconds <- proc.time()[["elapsed"]]-t1
     }
     results[[method]] <- list(status=status,irf_error=eirf,forecast_error=efc,forecast_gap=gap,
+      lag_selection=if(good && method=="VAR_BIC") fit$lag_selection else NULL,
       fit=if(config$keep_fits && good && method!="DGP") fit else NULL)
   }
   list(replication=replication,seed=seed,simulation_seconds=simulation_seconds,
@@ -194,7 +203,7 @@ varma_paper_designs <- function() {
 #' @param designs named list of stable, invertible varma population models.
 #' @param h maximum forecast horizon (default 5).
 #' @param irf_lags number of positive response lags (default 5); lag zero is excluded.
-#' @param methods estimation methods; defaults to all nine paper competitors.
+#' @param methods estimation methods; defaults to all ten paper competitors.
 #' DGP forecasts are always included separately.
 #' @param seed integer seed. Independent L'Ecuyer streams are assigned to cells
 #' and substreams to replications, preserving results across workers and resumes.
@@ -209,12 +218,15 @@ varma_paper_designs <- function() {
 #' both echelon estimators default to control=list(maxit=500,reltol=1e-8).
 #' MLE defaults to pilot="HR1" and initial_cov="stationary"; use
 #' MLE=list(initial_cov="fixed") to hold the pilot state covariance fixed.
+#' VAR_BIC defaults to p_min=1, p_max=NULL, lag_power=1.5: BIC selects among
+#' pure VAR orders using the common-sample rule in fit_var_bic.
 #' Other methods retain their package defaults; HR1 uses one iteration.
 #' @param resume reuse compatible completed checkpoints (default TRUE).
 #' @param keep_fits retain fitted objects (default FALSE). Raw IRF errors,
 #' forecast errors, forecasts relative to the DGP, and diagnostics are always saved.
 #' @param verbose report progress after each batch of checkpoints.
-#' @details The default experiment has 12 cells and 108,000 estimated models,
+#' @details The default experiment has 12 cells and 120,000 attempted estimator fits
+#' (VAR_BIC additionally fits its lag candidates),
 #' plus 12,000 true-parameter forecast calculations. DPF uses the original
 #' expanded orders p+(m-1)q and mq. Oracle echelon receives population Kronecker
 #' indices; feasible echelon selects them using training data only. Neither is
@@ -394,7 +406,8 @@ summarize_varma_paper_simulation <- function(output_dir,trim=.01,write_csv=TRUE)
   if(length(trim)!=1L || !is.finite(trim) || trim<0 || trim>=.5) stop("trim must be in [0,0.5)")
   manifest <- readRDS(file.path(output_dir,"manifest.rds")); config <- manifest$config
   methods <- c("DGP",config$methods); K <- length(methods)
-  out <- stats::setNames(vector("list",7L),c("irf","forecast","forecast_gap","failures","timing","indices","diagnostics"))
+  out <- stats::setNames(vector("list",9L),c("irf","forecast","forecast_gap","failures","timing","indices","diagnostics",
+    "var_lag_selection","var_lag_frequencies"))
   cell_id <- 0L
   for(n in config$sample_sizes) for(design in names(config$designs)) {
     cell_id <- cell_id+1L; m <- as.integer(dim(config$designs[[design]])[1L])
@@ -452,6 +465,11 @@ summarize_varma_paper_simulation <- function(output_dir,trim=.01,write_csv=TRUE)
         out$indices[[length(out$indices)+1L]] <- data.frame(design=design,n=n,method=method,
           indices=names(counts),count=as.integer(counts),attempted=attempted,
           fraction=as.integer(counts)/attempted)
+      }
+      if(method=="VAR_BIC") {
+        lags <- .varma_bic_selection_summary(d,design,n)
+        out$var_lag_selection[[length(out$var_lag_selection)+1L]] <- lags$summary
+        out$var_lag_frequencies[[length(out$var_lag_frequencies)+1L]] <- lags$frequencies
       }
       for(subset in c("available","qualified")) {
         mask <- if(subset=="qualified") qualified[,k] else present

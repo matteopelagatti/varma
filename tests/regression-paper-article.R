@@ -68,12 +68,12 @@ local({
   stopifnot(calls==3L,d$trim==.02)
 })
 if(requireNamespace("ggplot2",quietly=TRUE) && requireNamespace("scales",quietly=TRUE)) local({
-  methods <- c("DGP","ECH_oracle","ECH_selected","CML","IHR","HR1","NET","RBY","DPF","MLE")
+  methods <- c("DGP","ECH_oracle","ECH_selected","CML","IHR","HR1","NET","RBY","DPF","MLE","VAR_BIC")
   cfg <- list(designs=list(model1=NULL),methods=methods[-1],sample_sizes=c(100,200))
   d <- expand.grid(method=methods,n=c(100,200),stringsAsFactors=FALSE)
   d$design <- "model1";d$rmse <- seq_len(nrow(d))/100
   p <- .pa_plot(d,cfg,helpers,"n","rmse","Sample size","RMSE",methods,14)
   layer <- ggplot2::ggplot_build(p)$data[[2]]
-  stopifnot(!anyNA(layer$shape),!anyNA(layer$colour),length(unique(layer$group))==10L)
+  stopifnot(!anyNA(layer$shape),!anyNA(layer$colour),length(unique(layer$group))==11L)
 })
 cat("Article export regression checks passed.\n")

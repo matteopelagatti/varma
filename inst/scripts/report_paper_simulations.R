@@ -88,9 +88,10 @@
   files <- list.files(input_dir, "^chunk-.*[.]rds$", full.names = TRUE)
   if (!length(files)) stop("No simulation checkpoints were found")
   used <- character(); cells <- list(); cell_id <- 0L
-  out <- stats::setNames(vector("list", 12L), c("irf", "forecast", "forecast_gap",
+  out <- stats::setNames(vector("list", 14L), c("irf", "forecast", "forecast_gap",
     "failures", "timing", "indices", "diagnostics", "irf_components",
-    "forecast_components", "replication_losses", "selection", "paired_comparisons"))
+    "forecast_components", "replication_losses", "selection", "paired_comparisons",
+    "var_lag_selection", "var_lag_frequencies"))
   append_row <- function(target, row) {
     out[[target]][[length(out[[target]]) + 1L]] <<- row
   }
@@ -177,6 +178,11 @@
         p90_fit_seconds = as.numeric(stats::quantile(d$fit_seconds, .9)),
         total_fit_seconds = sum(d$fit_seconds),
         mean_evaluation_seconds = mean(d$evaluation_seconds)))
+      if(method=="VAR_BIC") {
+        lags <- utils::getFromNamespace(".varma_bic_selection_summary","varma")(d,design,n)
+        append_row("var_lag_selection",lags$summary)
+        append_row("var_lag_frequencies",lags$frequencies)
+      }
       if (method %in% c("ECH_oracle", "ECH_selected")) {
         labels <- ifelse(nzchar(d$indices), d$indices, "unavailable_after_failed_fit")
         counts <- table(labels)
@@ -253,9 +259,9 @@
 }
 
 .pr_labels <- c(DGP = "DGP", ECH_oracle = "ECH oracle", ECH_selected = "ECH selected",
-  CML = "CML", IHR = "IHR", HR1 = "HR1", NET = "NET", RBY = "RBY", DPF = "DPF", MLE = "MLE")
+  CML = "CML", IHR = "IHR", HR1 = "HR1", NET = "NET", RBY = "RBY", DPF = "DPF", MLE = "MLE", VAR_BIC = "VAR (BIC)")
 .pr_colors <- c(DGP = "#222222", ECH_oracle = "#0072B2", ECH_selected = "#56B4E9",
-  CML = "#8C564B", IHR = "#D55E00", HR1 = "#CC79A7", NET = "#E69F00", RBY = "#009E73", DPF = "#797979", MLE = "#5C3D99")
+  CML = "#8C564B", IHR = "#D55E00", HR1 = "#CC79A7", NET = "#E69F00", RBY = "#009E73", DPF = "#797979", MLE = "#5C3D99", VAR_BIC = "#006466")
 
 .pr_num <- function(x, digits = 3L) {
   vapply(x, function(z) if (is.na(z)) "--" else if (!is.finite(z)) as.character(z) else
@@ -483,7 +489,7 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
     ggplot2::facet_grid(diagnostic ~ Design) + ggplot2::scale_y_discrete(limits = rev(levels(fd$Sample))) +
     ggplot2::scale_fill_gradient(low = "#F4F7FA", high = "#E69F00", limits = c(0, 100), name = "Percent") +
     ggplot2::labs(x = NULL, y = NULL, title = "Numerical diagnostics", subtitle = "Percent of attempted replications; categories can overlap",
-      caption = "Qualified requires stable AR, invertible MA and reported convergence when applicable. NET's convergence flag refers to its IHR pilot.\nHR1 and DPF have no iterative convergence requirement. Forecast availability also requires finite squared errors. These are diagnostics, not proof of a global optimum.") +
+      caption = "Qualified requires stable AR, invertible MA and reported convergence when applicable. NET's convergence flag refers to its IHR pilot.\nHR1, DPF and VAR (BIC) have no iterative convergence requirement. Forecast availability also requires finite squared errors. These are diagnostics, not proof of a global optimum.") +
     .pr_theme() + ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 55, hjust = 1, size = 8)), height = 12)
   if (nrow(z$selection) && "ECH_selected" %in% z$selection$method) {
     s <- .pr_prepare(z$selection[z$selection$method == "ECH_selected", ], cfg)
@@ -498,6 +504,19 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
       ggplot2::labs(x = "Training sample size", y = "Correct vector / attempted replications",
         title = "Data-driven Kronecker index selection", subtitle = "Exact recovery of the population index vector",
         caption = "Whiskers: +/-1.96 binomial Monte Carlo standard errors (clipped to [0,1]). Unreturned indices remain in the denominator.\nAn index vector may be unavailable because the subsequent fit failed; this is not a pure selection-error probability. Full vector frequencies are in indices.csv.") + .pr_theme(), height = 5.5)
+  }
+  if(nrow(z$var_lag_frequencies)) {
+    s <- .pr_prepare(z$var_lag_frequencies,cfg)
+    s$Lag <- suppressWarnings(as.integer(s$selected_p))
+    s <- s[is.finite(s$Lag),,drop=FALSE]
+    if(nrow(s)) add("var_lag_frequencies",ggplot2::ggplot(s,ggplot2::aes(Lag,fraction)) +
+      ggplot2::geom_col(fill=.pr_colors[["VAR_BIC"]]) +
+      ggplot2::facet_grid(Sample~Design) +
+      ggplot2::scale_x_continuous(breaks=sort(unique(s$Lag))) +
+      ggplot2::scale_y_continuous(labels=scales::label_percent()) +
+      ggplot2::labs(x="Selected VAR lag",y="Fraction of all attempts",
+        title="VAR lag selection by BIC",
+        caption="BIC compares candidates on a common sample; the selected order is refitted on all available rows. Failed fits remain in the denominator.\nThese are approximation orders, not recovery probabilities for the VARMA population's AR order.") + .pr_theme())
   }
   gap <- .pr_prepare(z$forecast_gap[z$forecast_gap$method != "DGP" &
     z$forecast_gap$subset == "qualified" & z$forecast_gap$horizon > 0 & z$forecast_gap$variable == 0, ], cfg)
@@ -561,10 +580,21 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
         `MA noninv.` = d$noninvertible_ma, Qualified = d$qualified, check.names = FALSE)
       file <- paste0("diagnostics_design", i, ".tex")
       .pr_table(tab, paste0("Design ", i, ": numerical diagnostics."),
-        "Counts refer to attempted replications. Categories overlap. NET's convergence field concerns its IHR pilot. HR1 and DPF have no iterative convergence requirement. Forecast failures include nonfinite squared errors; finite extreme outputs remain available. Convergence does not certify a global maximum.",
+        "Counts refer to attempted replications. Categories overlap. NET's convergence field concerns its IHR pilot. HR1, DPF and VAR (BIC) have no iterative convergence requirement. Forecast failures include nonfinite squared errors; finite extreme outputs remain available. Convergence does not certify a global maximum.",
         file.path(report_dir, "tables", file), d)
       table_files <- c(table_files, file)
     }
+  }
+  if(nrow(z$var_lag_selection)) {
+    d <- z$var_lag_selection
+    tab <- data.frame(Design=d$design,n=d$n,Attempts=d$attempted,Returned=d$returned,
+      `Mean lag`=.pr_num(d$mean_p),`Median lag`=.pr_num(d$median_p),
+      `Maximum candidate`=d$p_max,`At maximum (%)`=.pr_num(100*d$at_max_fraction),
+      `Bound capped`=d$capped,check.names=FALSE)
+    .pr_table(tab,"VAR lag selection by BIC.",
+      "Mean and median lags and the boundary percentage use returned fits. BIC uses a common sample, followed by an OLS refit on all rows available at the selected order. Bound capped counts automatic bounds reduced by the degrees-of-freedom safeguard.",
+      file.path(report_dir,"tables","var_lag_selection.tex"),d)
+    table_files <- c(table_files,"var_lag_selection.tex")
   }
   tex <- c("% Standalone tables. Requires booktabs. Copy this file and tables/ together.",
     "\\documentclass[11pt]{article}", "\\usepackage[a4paper,landscape,margin=16mm]{geometry}", "\\usepackage{booktabs}",
@@ -593,14 +623,14 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
       ". CML and the echelon estimators use conditional Gaussian likelihood."),
     "", "Primary results retain every finite loss, including extreme outputs and nonconverged estimates.",
     "Qualified results require stable AR, invertible MA and reported convergence where applicable.",
-    "NET's convergence flag concerns its IHR pilot; HR1 and DPF have no iterative flag.",
+    "NET's convergence flag concerns its IHR pilot; HR1, DPF and VAR (BIC) have no iterative flag.",
     sprintf("The paper-style trimmed comparison removes %.1f%% of replication losses from each tail.", trim * 100),
     "Neither availability nor qualification makes these unconditional risks of an algorithm that can fail.",
     "", "IRF bands are Monte Carlo sampling quantiles, not confidence intervals.",
     "MCSEs use independent replication-level losses. Heavy tails can make them unreliable.",
     "Relative errors pair each method with its benchmark on common usable draws.",
     "", "This run evaluates IRFs and point forecasts. It does not evaluate FEVDs, bootstrap coverage,",
-    "prediction-interval coverage, or fitted VAR benchmarks. These require additional experiments.")
+    "or prediction-interval coverage. These require additional experiments.")
   grDevices::cairo_pdf(file.path(report_dir, "paper_report.pdf"), width = 16, height = 10)
   tryCatch({
     .pr_text_page("VARMA simulation results", highlights, paste("Generated", format(Sys.time(), "%Y-%m-%d %H:%M")))

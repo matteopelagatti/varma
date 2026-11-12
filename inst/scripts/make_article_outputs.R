@@ -4,7 +4,7 @@
 # changing the graphics fast. All plots are ordinary editable ggplot objects.
 input_dir <- "paper-results"
 output_dir <- file.path(input_dir, "article")
-methods <- NULL  # NULL = all; or c("CML", "MLE", "ECH_oracle", "ECH_selected")
+methods <- NULL  # NULL = all; or c("VAR_BIC", "CML", "MLE", "ECH_oracle", "ECH_selected")
 accuracy_subset <- "available"  # includes finite nonconverged/unstable estimates
 forecast_sample_size <- NULL   # NULL = largest n; or 100, 200, 400
 trim_each_tail <- 0.01

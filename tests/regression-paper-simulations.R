@@ -39,7 +39,7 @@ check("loss summaries do not trim primary risk and use paired references",{
 })
 
 args<-list(nsim=3L,sample_sizes=100L,designs=models[1],h=2L,irf_lags=2L,
-  methods=c("HR1","ECH_oracle","ECH_selected","CML","NET","MLE"),seed=772L,chunk_size=1L,
+  methods=c("HR1","ECH_oracle","ECH_selected","CML","NET","MLE","VAR_BIC"),seed=772L,chunk_size=1L,
   estimator_args=list(MLE=list(control=list(maxit=25))),keep_fits=TRUE,verbose=FALSE)
 dir1<-file.path(root,"sequential")
 check("simulation records shared data, raw losses, convergence, and valid summaries",{
@@ -54,10 +54,15 @@ check("simulation records shared data, raw losses, convergence, and valid summar
     for(f in fits[-1]) close(f$y,fits[[1]]$y)
     stopifnot(all(rep$results$DGP$irf_error==0),all(rep$results$DGP$forecast_gap==0))
     close(rep$results$DGP$forecast_error,rep$actual-rep$oracle)
+    v <- rep$results$VAR_BIC
+    stopifnot(v$status$convergence_type=="not_applicable",v$status$var_p_max==10L,
+      v$status$selected_p==v$fit$selected_order,nrow(v$lag_selection)==10L)
   }
   loss<-vapply(records,function(x) mean(x$results[[1]]$results$HR1$irf_error^2),numeric(1))
   row<-subset(result$summary$irf,method=="HR1" & subset=="available" & horizon==0)
   close(row$mse,mean(loss));close(row$mse_mcse,sd(loss)/sqrt(3))
+  stopifnot(result$summary$var_lag_selection$returned==3L,
+            sum(result$summary$var_lag_frequencies$count)==3L)
   loss<-vapply(records,function(x) mean(x$results[[1]]$results$HR1$forecast_error[1,]^2),numeric(1))
   row<-subset(result$summary$forecast,method=="HR1" & subset=="available" & horizon==1 & variable==0)
   close(row$mse,mean(loss));close(row$mse_mcse,sd(loss)/sqrt(3))

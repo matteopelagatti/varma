@@ -1,3 +1,13 @@
+# varma 0.1.4
+
+* Added `fit_var_bic()`: selects pure VAR orders by BIC on a common sample,
+  then refits by OLS using all observations available at the selected order.
+  The automatic upper bound is ceiling(log(n)^1.5), with a residual-degrees-
+  of-freedom cap; fixed upper bounds and VAR(0) candidates are optional.
+* Paper simulations now include `VAR_BIC`, without using population VARMA
+  orders. Checkpoints retain selected lags and all candidate BICs. Reporting
+  includes the VAR accuracy curves, lag frequencies and boundary diagnostics.
+
 # varma 0.1.3
 
 * Added `fit_varma_cml()` for unrestricted conditional Gaussian ML, sharing
