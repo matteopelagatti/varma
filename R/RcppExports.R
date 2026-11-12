@@ -141,12 +141,12 @@ kronecker_indices_cpp <- function(Phi, Theta, tol = 1e-8) {
     .Call(`_varma_kronecker_indices_cpp`, Phi, Theta, tol)
 }
 
-varma_candidate_cpp <- function(pars, m, p, q, intercept) {
-    .Call(`_varma_varma_candidate_cpp`, pars, m, p, q, intercept)
+varma_candidate_cpp <- function(pars, m, p, q, intercept, initial_cov = NULL) {
+    .Call(`_varma_varma_candidate_cpp`, pars, m, p, q, intercept, initial_cov)
 }
 
-varma_loglik_cpp <- function(pars, Yt, p, q, intercept) {
-    .Call(`_varma_varma_loglik_cpp`, pars, Yt, p, q, intercept)
+varma_loglik_cpp <- function(pars, Yt, p, q, intercept, initial_cov = NULL) {
+    .Call(`_varma_varma_loglik_cpp`, pars, Yt, p, q, intercept, initial_cov)
 }
 
 autocov_ss_cpp <- function(T, P, m, maxlag) {

@@ -27,6 +27,25 @@
   env
 }
 
+# Cache numerical aggregation, not graphics. Any change to inputs, trimming,
+# collector code or installed package invalidates the cache automatically.
+.pa_collect_cached <- function(input_dir, output_dir, helpers, trim, allow_partial) {
+  files <- c(file.path(input_dir, "manifest.rds"),
+    sort(list.files(input_dir, "^(chunk-|execution-).*[.]rds$", full.names=TRUE)))
+  signature <- list(hashes=tools::md5sum(files), trim=trim,
+    collector=tools::md5sum(.pa_companion), version=as.character(utils::packageVersion("varma")))
+  path <- file.path(output_dir, "summary-cache.rds")
+  cached <- if (file.exists(path)) tryCatch(readRDS(path), error=function(e) NULL) else NULL
+  if (!is.null(cached) && identical(cached$signature, signature) &&
+      (allow_partial || all(cached$summary$completion$missing == 0L))) {
+    message("Using verified numerical cache; regenerating graphics and tables")
+    return(cached$summary)
+  }
+  z <- helpers$.pr_collect(input_dir, trim, allow_partial)
+  saveRDS(list(signature=signature, summary=z), path)
+  z
+}
+
 # This only suppresses the known corrupted forecasts in the archived release.
 # It does not remove unstable/nonconverged fits from the available subset.
 .pa_data <- function(z, methods, subset) {
@@ -69,14 +88,15 @@
   p <- ggplot2::ggplot(d, ggplot2::aes(x, value, colour = method,
     linetype = method, shape = method, group = method))
   if (!is.null(reference)) p <- p + ggplot2::geom_hline(yintercept = reference,
-    colour = "grey55", linewidth = .35, linetype = "dotted")
-  if (length(unique(d$x)) > 1L) p <- p + ggplot2::geom_line(linewidth = .45, na.rm = TRUE)
-  p <- p + ggplot2::geom_point(size = 1.7, stroke = .4, na.rm = TRUE) +
+    colour = "grey55", linewidth = .5, linetype = "dotted")
+  if (length(unique(d$x)) > 1L) p <- p + ggplot2::geom_line(linewidth = .65, na.rm = TRUE)
+  p <- p + ggplot2::geom_point(size = 2.2, stroke = .5, na.rm = TRUE) +
     ggplot2::facet_wrap(~Design, ncol = 2L, scales = "free_y", drop = FALSE) +
     ggplot2::scale_x_continuous(breaks = sort(unique(d$x))) +
     ggplot2::scale_colour_manual(values = helpers$.pr_colors, breaks = methods,
       labels = labels, name = NULL) +
-    ggplot2::scale_shape_manual(values = stats::setNames(c(16, 17, 15, 18, 0, 1, 2, 5, 6)[seq_along(methods)], methods),
+    ggplot2::scale_shape_manual(values = stats::setNames(rep(c(16, 17, 15, 18, 0, 1, 2, 5, 6, 8),
+      length.out = length(methods)), methods),
       breaks = methods, labels = labels, name = NULL) +
     ggplot2::scale_linetype_manual(values = stats::setNames(rep(c("solid", "dashed", "dotdash"),
       length.out = length(methods)), methods), breaks = methods, labels = labels, name = NULL) +
@@ -85,15 +105,17 @@
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank(),
       panel.grid.major = ggplot2::element_line(colour = "grey92", linewidth = .2),
       strip.background = ggplot2::element_rect(fill = "grey95", colour = "grey70"),
-      strip.text = ggplot2::element_text(face = "bold"),
+      axis.text = ggplot2::element_text(size = font_size - 1, colour = "black"),
+      axis.title = ggplot2::element_text(size = font_size),
+      strip.text = ggplot2::element_text(face = "bold", size = font_size),
       legend.position = "bottom", legend.key.width = grid::unit(1.5, "lines"),
       legend.text = ggplot2::element_text(size = font_size - 1),
       panel.spacing = grid::unit(.9, "lines"),
       plot.caption = ggplot2::element_text(size = font_size - 1, hjust = 0),
       plot.margin = ggplot2::margin(7, 10, 7, 7)) +
-    ggplot2::guides(colour = ggplot2::guide_legend(nrow = 2, byrow = TRUE),
-      shape = ggplot2::guide_legend(nrow = 2, byrow = TRUE),
-      linetype = ggplot2::guide_legend(nrow = 2, byrow = TRUE))
+    ggplot2::guides(colour = ggplot2::guide_legend(ncol = 4, byrow = TRUE),
+      shape = ggplot2::guide_legend(ncol = 4, byrow = TRUE),
+      linetype = ggplot2::guide_legend(ncol = 4, byrow = TRUE))
   if (log_y) p <- p + ggplot2::scale_y_log10(labels = scales::label_number(
     scale_cut = scales::cut_short_scale()))
   p
@@ -152,7 +174,7 @@
 article_varma_paper_simulation <- function(input_dir = "paper-results",
     output_dir = file.path(input_dir, "article"), methods = NULL,
     subset = c("available", "qualified"), trim = .01, forecast_n = NULL,
-    allow_partial = FALSE, width = 7, height = 5.3, font_size = 10, png = TRUE) {
+    allow_partial = FALSE, width = 7, height = 6, font_size = 14, png = TRUE) {
   subset <- match.arg(subset)
   if (length(trim) != 1L || !is.finite(trim) || trim < 0 || trim >= .5)
     stop("trim must lie in [0, 0.5)")
@@ -173,7 +195,7 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   output_dir <- normalizePath(output_dir, winslash = "/", mustWork = TRUE)
   if (tolower(input_dir) == tolower(output_dir)) stop("Use a separate output directory")
-  z <- helpers$.pr_collect(input_dir, trim, allow_partial)
+  z <- .pa_collect_cached(input_dir, output_dir, helpers, trim, allow_partial)
   d <- .pa_data(z, methods, subset)
   complete <- all(z$completion$missing == 0L)
   status_note <- if (complete) "" else "INCOMPLETE RUN: only completed replications are included. "
@@ -198,7 +220,8 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
     file.path(output_dir, "data", "input_checksums.csv"), row.names = FALSE)
   meta <- list(generated = Sys.time(), config_id = z$manifest$config_id, config = cfg,
     execution = z$execution, input_dir = input_dir, methods = methods, subset = subset,
-    trim = trim, forecast_n = forecast_n, complete = complete, withheld_forecasts = d$withheld,
+    trim = trim, forecast_n = forecast_n, width=width, height=height, font_size=font_size,
+    complete = complete, withheld_forecasts = d$withheld,
     correction_note = correction_note, session = utils::sessionInfo())
   saveRDS(meta, file.path(output_dir, "article-metadata.rds"))
   writeLines(capture.output(utils::sessionInfo()), file.path(output_dir, "session-info.txt"))
@@ -237,6 +260,7 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
     "Mean elapsed estimation time, including failed attempts, measured inside the simulation workers. All attempts are used irrespective of the accuracy subset. Worker times do not measure overall wall-clock time. ")
 
   device <- if (capabilities("cairo")) grDevices::cairo_pdf else grDevices::pdf
+  saveRDS(plots, file.path(output_dir, "plots.rds"))
   message("Writing ", length(plots), " article figures ...")
   for (name in names(plots)) {
     ggplot2::ggsave(file.path(output_dir, "figures", paste0(name, ".pdf")), plots[[name]],
@@ -244,10 +268,11 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
     if (png) ggplot2::ggsave(file.path(output_dir, "figures", paste0(name, ".png")), plots[[name]],
       width = width, height = height, units = "in", dpi = 300, bg = "white")
   }
-  device(file.path(output_dir, "article_figures.pdf"), width = width + .5, height = height + 1.7)
+  device(file.path(output_dir, "article_figures.pdf"), width = width + .5, height = height + 2.5)
   tryCatch({
     for (name in names(plots)) print(plots[[name]] + ggplot2::labs(
-      title = gsub("_", " ", name), caption = paste(strwrap(captions[[name]], 108), collapse = "\n")))
+      title = gsub("_", " ", name), caption = paste(strwrap(captions[[name]], 90), collapse = "\n")) +
+      ggplot2::theme(plot.caption=ggplot2::element_text(size=10,hjust=0)))
   }, finally = grDevices::dev.off())
 
   tables <- character()

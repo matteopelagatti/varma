@@ -898,10 +898,16 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
 #' @param p order of the AR part.
 #' @param q order of the MA part.
 #' @param intercept logical, if TRUE, the model will include an intercept.
-#' @param maxit maximum iterations of the pilot Hannan--Rissanen estimator.
+#' @param maxit maximum pilot iterations when pilot="IHR"; unused for HR1.
+#' @param pilot starting estimator: "HR1" (default, one Hannan--Rissanen
+#' regression update) or "IHR" (iterated Hannan--Rissanen).
+#' @param initial_cov "stationary" (default) recomputes the initial state
+#' covariance at every candidate using the adaptive Lyapunov solver; "fixed"
+#' holds it at the covariance implied by the stabilized pilot. This is the
+#' state covariance, not the innovation covariance, which is always estimated.
 #' @param control list passed to stats::optim; control$maxit controls likelihood iterations.
-#' @details The Gaussian likelihood uses a stationary initial covariance recomputed
-#' at each candidate. Optimisation is restricted to stable AR and invertible MA
+#' @details The stationary initialization is recomputed at each candidate unless
+#' fixed initialization is requested. Optimisation requires stable AR and invertible MA
 #' polynomials. The returned optim.out records numerical convergence; a local optimum
 #' is not a guarantee of global maximisation. No echelon restrictions are imposed.
 #' @param ret a character string indicating the type of output: "varma" or
@@ -913,9 +919,10 @@ fit_varma_net <- function(Y, p=1, q=1, intercept = TRUE,
 #' @importFrom KFAS SSMcustom SSModel fitSSM KFS
 #' @export
 fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
-                           ret = c("varma", "kfas"), control = list()) {
+                           ret = c("varma", "kfas"), control = list(),
+                           initial_cov=c("stationary","fixed"),pilot=c("HR1","IHR")) {
   ret <- match.arg(ret)
-  out <- .varma_ml(Y,p,q,intercept,maxit,control,"kfas")
+  out <- .varma_ml(Y,p,q,intercept,maxit,control,"kfas",initial_cov,pilot)
   if (ret == "varma") out$fit else out$raw
 }
 
@@ -930,10 +937,16 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
 #' @param p order of the AR part.
 #' @param q order of the MA part.
 #' @param intercept boolean, if TRUE, the model will include an intercept.
-#' @param maxit maximum iterations of the pilot Hannan--Rissanen estimator.
+#' @param maxit maximum pilot iterations when pilot="IHR"; unused for HR1.
+#' @param pilot starting estimator: "HR1" (default, one Hannan--Rissanen
+#' regression update) or "IHR" (iterated Hannan--Rissanen).
+#' @param initial_cov "stationary" (default) recomputes the initial state
+#' covariance at every candidate using the adaptive Lyapunov solver; "fixed"
+#' holds it at the covariance implied by the stabilized pilot. This is the
+#' state covariance, not the innovation covariance, which is always estimated.
 #' @param control list passed to stats::optim; control$maxit controls likelihood iterations.
-#' @details The Gaussian likelihood uses a stationary initial covariance recomputed
-#' at each candidate. Optimisation is restricted to stable AR and invertible MA
+#' @details The stationary initialization is recomputed at each candidate unless
+#' fixed initialization is requested. Optimisation requires stable AR and invertible MA
 #' polynomials. The returned optim.out records numerical convergence; a local optimum
 #' is not a guarantee of global maximisation. No echelon restrictions are imposed.
 #' @param ret a character string indicating the type of output: "varma" (default)
@@ -944,9 +957,10 @@ fit_varma_kfas <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
 #'
 #' @export
 fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
-                           ret = c("varma", "ss"), control = list()) {
+                           ret = c("varma", "ss"), control = list(),
+                           initial_cov=c("stationary","fixed"),pilot=c("HR1","IHR")) {
   ret <- match.arg(ret)
-  out <- .varma_ml(Y,p,q,intercept,maxit,control,"fkf")
+  out <- .varma_ml(Y,p,q,intercept,maxit,control,"fkf",initial_cov,pilot)
   if (ret == "varma") out$fit else out$raw
 }
 
@@ -960,17 +974,24 @@ fit_varma_fkf <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
 #' @param p the autoregressive order.
 #' @param q the moving average order.
 #' @param intercept logical: if TRUE (default) a vector of intercepts is computed.
-#' @param maxit maximum iterations of the pilot Hannan--Rissanen estimator.
+#' @param maxit maximum pilot iterations when pilot="IHR"; unused for HR1.
+#' @param pilot starting estimator: "HR1" (default, one Hannan--Rissanen
+#' regression update) or "IHR" (iterated Hannan--Rissanen).
+#' @param initial_cov "stationary" (default) recomputes the initial state
+#' covariance at every candidate using the adaptive Lyapunov solver; "fixed"
+#' holds it at the covariance implied by the stabilized pilot. This is the
+#' state covariance, not the innovation covariance, which is always estimated.
 #' @param control list passed to stats::optim; control$maxit controls likelihood iterations.
-#' @details The Gaussian likelihood uses a stationary initial covariance recomputed
-#' at each candidate. Optimisation is restricted to stable AR and invertible MA
+#' @details The stationary initialization is recomputed at each candidate unless
+#' fixed initialization is requested. Optimisation requires stable AR and invertible MA
 #' polynomials. The returned optim.out records numerical convergence; a local optimum
 #' is not a guarantee of global maximisation. No echelon restrictions are imposed.
 #' @return A varma object.
 #' @export
 fit_varma_skf <- function(Y, p = 1, q = 1, intercept = TRUE, maxit = 100,
-                           control = list()) {
-  out <- .varma_ml(Y,p,q,intercept,maxit,control,"skf")
+                           control = list(),initial_cov=c("stationary","fixed"),
+                           pilot=c("HR1","IHR")) {
+  out <- .varma_ml(Y,p,q,intercept,maxit,control,"skf",initial_cov,pilot)
   out$fit
 }
 

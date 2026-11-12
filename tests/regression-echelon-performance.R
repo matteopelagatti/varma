@@ -1,7 +1,7 @@
 if(identical(Sys.getenv("VARMA_TEST_SOURCE"),"1")) {
   Rcpp::sourceCpp("src/rcpp_functions.cpp",showOutput=FALSE,
     cacheDir=file.path(Sys.getenv("TEMP",tempdir()),"varma-regression-source-cache"))
-  for(file in c("estimation_helpers.R","functions.R","covariance.R","echelon.R")) source(file.path("R",file))
+  for(file in c("estimation_helpers.R","functions.R","covariance.R","cml.R","echelon.R")) source(file.path("R",file))
   internal <- function(x) get(x,.GlobalEnv)
 } else {
   library(varma)

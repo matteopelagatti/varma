@@ -11,7 +11,9 @@ fit_varma_fkf(
   intercept = TRUE,
   maxit = 100,
   ret = c("varma", "ss"),
-  control = list()
+  control = list(),
+  initial_cov = c("stationary", "fixed"),
+  pilot = c("HR1", "IHR")
 )
 }
 \arguments{
@@ -23,12 +25,20 @@ fit_varma_fkf(
 
 \item{intercept}{boolean, if TRUE, the model will include an intercept.}
 
-\item{maxit}{maximum iterations of the pilot Hannan--Rissanen estimator.}
+\item{maxit}{maximum pilot iterations when pilot="IHR"; unused for HR1.}
 
 \item{ret}{a character string indicating the type of output: "varma" (default)
 or "ss" (a list with the state-space form matrices and fkf function output).}
 
 \item{control}{list passed to stats::optim; control$maxit controls likelihood iterations.}
+
+\item{initial_cov}{"stationary" (default) recomputes the initial state
+covariance at every candidate using the adaptive Lyapunov solver; "fixed"
+holds it at the covariance implied by the stabilized pilot. This is the
+state covariance, not the innovation covariance, which is always estimated.}
+
+\item{pilot}{starting estimator: "HR1" (default, one Hannan--Rissanen
+regression update) or "IHR" (iterated Hannan--Rissanen).}
 }
 \value{
 A varma object or a list with the matrices of the state-space form,
@@ -42,8 +52,8 @@ Uses \code{FKF::fkf()} for multivariate Kalman filtering.
 With \code{ret="ss"}, the return value contains FKF's filter output,
 including \code{vt}, \code{Ft}, \code{at}, \code{Pt}, and \code{logLik}.
 
-The Gaussian likelihood uses a stationary initial covariance recomputed
-at each candidate. Optimisation is restricted to stable AR and invertible MA
+The stationary initialization is recomputed at each candidate unless
+fixed initialization is requested. Optimisation requires stable AR and invertible MA
 polynomials. The returned optim.out records numerical convergence; a local optimum
 is not a guarantee of global maximisation. No echelon restrictions are imposed.
 }

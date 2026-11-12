@@ -8,3 +8,5 @@ src/*.dll
 
 # Local investigation outputs
 /audit/
+# Previous experiments preserved by the explicit simulation restart command
+/paper-results-previous-*/

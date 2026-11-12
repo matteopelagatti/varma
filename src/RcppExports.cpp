@@ -261,8 +261,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // varma_candidate_cpp
-Rcpp::List varma_candidate_cpp(const arma::vec& pars, int m, int p, int q, bool intercept);
-RcppExport SEXP _varma_varma_candidate_cpp(SEXP parsSEXP, SEXP mSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP) {
+Rcpp::List varma_candidate_cpp(const arma::vec& pars, int m, int p, int q, bool intercept, Rcpp::Nullable<Rcpp::NumericMatrix> initial_cov);
+RcppExport SEXP _varma_varma_candidate_cpp(SEXP parsSEXP, SEXP mSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP, SEXP initial_covSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -271,13 +271,14 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type p(pSEXP);
     Rcpp::traits::input_parameter< int >::type q(qSEXP);
     Rcpp::traits::input_parameter< bool >::type intercept(interceptSEXP);
-    rcpp_result_gen = Rcpp::wrap(varma_candidate_cpp(pars, m, p, q, intercept));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type initial_cov(initial_covSEXP);
+    rcpp_result_gen = Rcpp::wrap(varma_candidate_cpp(pars, m, p, q, intercept, initial_cov));
     return rcpp_result_gen;
 END_RCPP
 }
 // varma_loglik_cpp
-double varma_loglik_cpp(const arma::vec& pars, const arma::mat& Yt, int p, int q, bool intercept);
-RcppExport SEXP _varma_varma_loglik_cpp(SEXP parsSEXP, SEXP YtSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP) {
+double varma_loglik_cpp(const arma::vec& pars, const arma::mat& Yt, int p, int q, bool intercept, Rcpp::Nullable<Rcpp::NumericMatrix> initial_cov);
+RcppExport SEXP _varma_varma_loglik_cpp(SEXP parsSEXP, SEXP YtSEXP, SEXP pSEXP, SEXP qSEXP, SEXP interceptSEXP, SEXP initial_covSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -286,7 +287,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type p(pSEXP);
     Rcpp::traits::input_parameter< int >::type q(qSEXP);
     Rcpp::traits::input_parameter< bool >::type intercept(interceptSEXP);
-    rcpp_result_gen = Rcpp::wrap(varma_loglik_cpp(pars, Yt, p, q, intercept));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericMatrix> >::type initial_cov(initial_covSEXP);
+    rcpp_result_gen = Rcpp::wrap(varma_loglik_cpp(pars, Yt, p, q, intercept, initial_cov));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -352,8 +354,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_varma_autocov_mi_cpp", (DL_FUNC) &_varma_autocov_mi_cpp, 4},
     {"_varma_rby_optimization_step", (DL_FUNC) &_varma_rby_optimization_step, 7},
     {"_varma_kronecker_indices_cpp", (DL_FUNC) &_varma_kronecker_indices_cpp, 3},
-    {"_varma_varma_candidate_cpp", (DL_FUNC) &_varma_varma_candidate_cpp, 5},
-    {"_varma_varma_loglik_cpp", (DL_FUNC) &_varma_varma_loglik_cpp, 5},
+    {"_varma_varma_candidate_cpp", (DL_FUNC) &_varma_varma_candidate_cpp, 6},
+    {"_varma_varma_loglik_cpp", (DL_FUNC) &_varma_varma_loglik_cpp, 6},
     {"_varma_autocov_ss_cpp", (DL_FUNC) &_varma_autocov_ss_cpp, 4},
     {"_varma_echelon_css_cpp", (DL_FUNC) &_varma_echelon_css_cpp, 5},
     {"_varma_kronid_cpp", (DL_FUNC) &_varma_kronid_cpp, 4},

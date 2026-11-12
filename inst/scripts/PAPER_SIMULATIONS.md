@@ -5,12 +5,47 @@ The default experiment reproduces the four full-precision models from
 per model/sample-size cell, zero means, no fitted intercepts, 100 discarded
 burn-in observations, IRF lags 1–5 and forecast horizons 1–5.
 
-It compares eight estimators: `ECH_oracle`, `ECH_selected`, `IHR`, `HR1`, `NET`,
-`RBY`, `DPF`, and `MLE`. MLE defaults to `fit_varma_skf()`, which uses the
+It compares nine estimators: `ECH_oracle`, `ECH_selected`, `CML`, `IHR`, `HR1`,
+`NET`, `RBY`, `DPF`, and `MLE`. MLE defaults to `fit_varma_skf()`, which uses the
 compiled stationary Gaussian likelihood. DPF retains the expanded orders in
 the original experiment. The two echelon estimators use the package's
 conditional Gaussian likelihood, with population indices and indices selected
 from the training data, respectively. No MTS installation is required.
+
+`CML` calls `fit_varma_cml()` with full AR/MA matrices. It shares the pilot,
+compiled conditional objective, analytic gradient and BFGS implementation
+with echelon. For Models 2 and 4, oracle echelon has equal indices and hence
+the same parameter space: CML and oracle echelon should coincide numerically.
+Their curves may overlap exactly; they are not independent algorithms there.
+
+Version **0.1.3** also switches state-space ML starting values to HR1. The
+default `initial_cov="stationary"` recomputes the initial state covariance
+at every candidate using the adaptive doubling/Schur Lyapunov solver.
+`initial_cov="fixed"` computes it once from the stabilized pilot and holds
+it fixed. The innovation covariance is estimated under either option; the
+initial state covariance is never a separate unrestricted parameter matrix.
+All three backends (`skf`, `fkf`, `kfas`) support both choices and
+`pilot="IHR"` remains available to reproduce the earlier pilot policy.
+
+Edit `estimator_args` near the top of `run_paper_simulations.R` to change
+these settings. For example:
+
+```r
+estimator_args <- list(MLE=list(initial_cov="fixed",pilot="HR1"))
+```
+
+Settings are recorded in the manifest. Do not resume older checkpoints under
+the new estimator definitions. To begin a new experiment in `paper-results`
+while preserving the existing folder, run **once**:
+
+```text
+Rscript inst/scripts/run_paper_simulations.R restart paper-results 7 1000
+```
+
+This renames the previous folder to `paper-results-previous-TIMESTAMP`, then
+starts the new run. Those backup folders are excluded from Git and package
+builds. To resume this new run, use `full`, not `restart`. The plotting command
+remains `source("inst/scripts/make_article_outputs.R")` in R.
 
 The additional `DGP` benchmark knows the population parameters and filters the
 same observed training history. It does not see future observations or the
@@ -23,7 +58,7 @@ Install R first. For the supplied Windows binary, use **64-bit R 4.5.x**. In R:
 ```r
 install.packages(c("Rcpp", "RcppArmadillo", "KFAS", "FKF", "Matrix",
                    "future", "future.apply", "glmnet"))
-install.packages("varma_0.1.1.zip", repos=NULL, type="win.binary")
+install.packages("dist/varma_0.1.3.zip", repos=NULL, type="win.binary")
 library(varma)
 ```
 
@@ -31,7 +66,7 @@ The source archive also works on other platforms or when rebuilding for a
 different R version:
 
 ```r
-install.packages("varma_0.1.1.tar.gz", repos=NULL, type="source")
+install.packages("dist/varma_0.1.3.tar.gz", repos=NULL, type="source")
 ```
 
 A source installation needs the appropriate compiler toolchain: Rtools on
@@ -48,7 +83,7 @@ After installing the required dependencies listed above, install the new
 source archive with:
 
 ```r
-install.packages("varma_0.1.2.tar.gz", repos=NULL, type="source")
+install.packages("dist/varma_0.1.3.tar.gz", repos=NULL, type="source")
 ```
 
 On Windows use the Rtools release recommended for your R version. The older supplied
@@ -69,7 +104,7 @@ Rscript inst/scripts/article_paper_simulations.R paper-results
 ```
 
 Run these commands from the repository root. The simulation runner requires
-varma >= 0.1.1. If the output argument is omitted, `full` and `summary` default
+varma >= 0.1.3. If the output argument is omitted, `full` and `summary` default
 to `paper-results`; `benchmark` defaults to `timing-test`. Completed checkpoints
 from a corrected run are still preserved for resuming an interrupted run.
 
@@ -86,7 +121,7 @@ controls as the full run, rather than a reduced iteration budget. Five pilot
 replications per cell give a quick timing estimate; 20 or more are preferable
 for assessing variability. Use a new output folder for each benchmark.
 
-The full experiment performs **96,000 fits** over **12,000 independently
+The full experiment performs **108,000 fits** over **12,000 independently
 simulated samples**, plus the DGP forecast calculations. On a four-core laptop,
 four workers usually provide a useful speed gain, but eight logical processors
 do not imply an eightfold speedup. The driver limits BLAS/OpenMP threads to one
@@ -287,7 +322,7 @@ run_varma_paper_simulation(
 )
 ```
 
-Default MLE and echelon limits are 500 optimizer iterations with `reltol=1e-8`.
+Default MLE, CML and echelon limits are 500 optimizer iterations with `reltol=1e-8`.
 Other estimators keep their corrected package defaults. Local optimizer
 convergence does not certify a global maximum. No failed method is replaced
 by a different estimator and no automatic retries alter its definition.

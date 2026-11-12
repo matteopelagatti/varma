@@ -39,7 +39,7 @@ check("loss summaries do not trim primary risk and use paired references",{
 })
 
 args<-list(nsim=3L,sample_sizes=100L,designs=models[1],h=2L,irf_lags=2L,
-  methods=c("HR1","ECH_oracle","ECH_selected","NET","MLE"),seed=772L,chunk_size=1L,
+  methods=c("HR1","ECH_oracle","ECH_selected","CML","NET","MLE"),seed=772L,chunk_size=1L,
   estimator_args=list(MLE=list(control=list(maxit=25))),keep_fits=TRUE,verbose=FALSE)
 dir1<-file.path(root,"sequential")
 check("simulation records shared data, raw losses, convergence, and valid summaries",{

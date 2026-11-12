@@ -4,5 +4,6 @@
 ^audit$
 ^dist$
 ^paper-results$
+^paper-results-.*$
 ^timing-test$
 ^\.claude$

@@ -1,3 +1,20 @@
+# varma 0.1.3
+
+* Added `fit_varma_cml()` for unrestricted conditional Gaussian ML, sharing
+  the echelon estimator's HR1-style pilot, compiled likelihood, analytic
+  gradient and BFGS optimizer. Full and echelon estimates coincide when their
+  coefficient patterns coincide.
+* State-space ML (`fit_varma_skf`, `fit_varma_kfas`, `fit_varma_fkf`) now uses
+  HR1 starting values by default. `pilot="IHR"` retains the iterated option.
+* `initial_cov="stationary"` recomputes the initial state covariance using
+  the adaptive Lyapunov solver at every candidate; `initial_cov="fixed"`
+  freezes the covariance implied by the stabilized pilot. Innovation
+  covariance parameters are estimated in both cases. Bootstrap refits retain
+  the selected policy and recompute their own pilot covariance.
+* Paper simulations and R reporting include CML. New experiments require
+  fresh checkpoints; an explicit `restart` driver mode preserves the old
+  experiment before starting a new one in the same output directory.
+
 # varma 0.1.0
 
 ## Portable paper simulations (10 November 2026)

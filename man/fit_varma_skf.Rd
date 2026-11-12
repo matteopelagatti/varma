@@ -4,7 +4,16 @@
 \alias{fit_varma_skf}
 \title{Fit a VARMA(p,q) Model using Sparse Kalman Filter}
 \usage{
-fit_varma_skf(Y, p = 1, q = 1, intercept = TRUE, maxit = 100, control = list())
+fit_varma_skf(
+  Y,
+  p = 1,
+  q = 1,
+  intercept = TRUE,
+  maxit = 100,
+  control = list(),
+  initial_cov = c("stationary", "fixed"),
+  pilot = c("HR1", "IHR")
+)
 }
 \arguments{
 \item{Y}{a numeric matrix or ts object with d columns (series) and N rows (observations).}
@@ -15,9 +24,17 @@ fit_varma_skf(Y, p = 1, q = 1, intercept = TRUE, maxit = 100, control = list())
 
 \item{intercept}{logical: if TRUE (default) a vector of intercepts is computed.}
 
-\item{maxit}{maximum iterations of the pilot Hannan--Rissanen estimator.}
+\item{maxit}{maximum pilot iterations when pilot="IHR"; unused for HR1.}
 
 \item{control}{list passed to stats::optim; control$maxit controls likelihood iterations.}
+
+\item{initial_cov}{"stationary" (default) recomputes the initial state
+covariance at every candidate using the adaptive Lyapunov solver; "fixed"
+holds it at the covariance implied by the stabilized pilot. This is the
+state covariance, not the innovation covariance, which is always estimated.}
+
+\item{pilot}{starting estimator: "HR1" (default, one Hannan--Rissanen
+regression update) or "IHR" (iterated Hannan--Rissanen).}
 }
 \value{
 A varma object.
@@ -27,8 +44,8 @@ Estimates the parameters of a VARMA(p,q) model by maximizing the
 likelihood computed with an efficient C++/Armadillo-based Kalman filter.
 }
 \details{
-The Gaussian likelihood uses a stationary initial covariance recomputed
-at each candidate. Optimisation is restricted to stable AR and invertible MA
+The stationary initialization is recomputed at each candidate unless
+fixed initialization is requested. Optimisation requires stable AR and invertible MA
 polynomials. The returned optim.out records numerical convergence; a local optimum
 is not a guarantee of global maximisation. No echelon restrictions are imposed.
 }

@@ -8,6 +8,7 @@ if (identical(Sys.getenv("VARMA_TEST_SOURCE"),"1")) {
   source("R/functions.R")
   source("R/covariance.R")
   source("R/echelon.R")
+  source("R/cml.R")
   internal <- function(x) get(x,envir=.GlobalEnv)
 } else {
   library(varma)

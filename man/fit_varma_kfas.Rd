@@ -11,7 +11,9 @@ fit_varma_kfas(
   intercept = TRUE,
   maxit = 100,
   ret = c("varma", "kfas"),
-  control = list()
+  control = list(),
+  initial_cov = c("stationary", "fixed"),
+  pilot = c("HR1", "IHR")
 )
 }
 \arguments{
@@ -23,12 +25,20 @@ fit_varma_kfas(
 
 \item{intercept}{logical, if TRUE, the model will include an intercept.}
 
-\item{maxit}{maximum iterations of the pilot Hannan--Rissanen estimator.}
+\item{maxit}{maximum pilot iterations when pilot="IHR"; unused for HR1.}
 
 \item{ret}{a character string indicating the type of output: "varma" or
 "kfas" (a list with model, the fitted SSModel, and optim.out).}
 
 \item{control}{list passed to stats::optim; control$maxit controls likelihood iterations.}
+
+\item{initial_cov}{"stationary" (default) recomputes the initial state
+covariance at every candidate using the adaptive Lyapunov solver; "fixed"
+holds it at the covariance implied by the stabilized pilot. This is the
+state covariance, not the innovation covariance, which is always estimated.}
+
+\item{pilot}{starting estimator: "HR1" (default, one Hannan--Rissanen
+regression update) or "IHR" (iterated Hannan--Rissanen).}
 }
 \value{
 A varma object, or a list containing model and optim.out. Stored errors
@@ -38,8 +48,8 @@ are multivariate prediction errors from KFAS::mvInnovations.
 VARMA estimation using Maximum-Likelihood in State-Space form using KFAS
 }
 \details{
-The Gaussian likelihood uses a stationary initial covariance recomputed
-at each candidate. Optimisation is restricted to stable AR and invertible MA
+The stationary initialization is recomputed at each candidate unless
+fixed initialization is requested. Optimisation requires stable AR and invertible MA
 polynomials. The returned optim.out records numerical convergence; a local optimum
 is not a guarantee of global maximisation. No echelon restrictions are imposed.
 }

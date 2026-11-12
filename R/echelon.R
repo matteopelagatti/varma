@@ -175,57 +175,9 @@ fit_varma_echelon <- function(Y,kidx=NULL,intercept=TRUE,plag=5,crit=.05,
   order <- max(kidx)
   if(n-order<=m) stop("The indices leave too few observations")
   pattern <- .varma_echelon_pattern(kidx,intercept)
-  pars <- numeric(nrow(pattern)); names(pars) <- rownames(pattern)
-  if(order==0L) {
-    if(intercept) pars[] <- colMeans(Y)
-  } else {
-    if(is.null(r)) r <- .varma_long_order(Y,order,order,intercept)
-    r <- .varma_integer(r,"r")
-    if(r<order || n-r<=m*r+as.integer(intercept)) stop("Pilot order r must be at least max(kidx) and leave residual degrees of freedom")
-    rows <- seq.int(r+1L,n)
-    XP <- .varma_lags(Y,r)[rows,,drop=FALSE]
-    if(intercept) XP <- cbind(1,XP)
-    pilot <- .varma_regression(XP,Y[rows,,drop=FALSE])
-    E <- matrix(0,n,m); E[rows,] <- pilot$residuals
-    if(n-r-order<=max(tabulate(pattern[,2L]+1L,nbins=m))) stop("Too few observations for the echelon pilot regression")
-    rows <- seq.int(r+order+1L,n)
-    for(i in seq_len(m)) {
-      columns <- which(pattern[,2L]==i-1L)
-      if(!length(columns)) next
-      X <- vapply(columns,function(j) {
-        kind<-pattern[j,1L];v<-pattern[j,3L]+1L;lag<-pattern[j,4L]
-        switch(kind+1L,rep(1,length(rows)),E[rows,v]-Y[rows,v],Y[rows-lag,v],E[rows-lag,v])
-      },numeric(length(rows)))
-      pars[columns] <- .varma_regression(X,Y[rows,i,drop=FALSE])$coefficients
-    }
-  }
-  evaluate <- function(x,gradient=TRUE) echelon_css_cpp(Y,x,pattern,order,gradient)
-  initial <- evaluate(pars,FALSE)
-  dynamic <- pattern[,1L] %in% c(2L,3L)
-  for(i in seq_len(200L)) {
-    if(isTRUE(initial$valid)) break
-    pars[dynamic] <- pars[dynamic]*.8
-    initial <- evaluate(pars,FALSE)
-  }
-  if(!isTRUE(initial$valid)) stop("Could not obtain a stable echelon starting point with positive definite covariance")
-  last_x <- NULL; last <- NULL
-  cached <- function(x) {
-    if(is.null(last_x) || !identical(x,last_x)) { last <<- evaluate(x); last_x <<- x }
-    last
-  }
-  if(length(pars) && order>0L) {
-    opt <- stats::optim(pars,function(x) cached(x)$value,
-                       function(x) as.numeric(cached(x)$gradient),
-                       method="BFGS",control=control)
-    pars <- opt$par
-  } else opt <- list(par=pars,value=initial$value,convergence=0L,
-                    counts=c("function"=1L,gradient=0L),message="Closed-form white-noise fit")
-  z <- evaluate(pars,FALSE)
-  if(!isTRUE(z$valid)) stop("Optimisation did not produce a valid echelon model")
-  if(opt$convergence!=0L) warning("Echelon optimiser did not converge; inspect $optim.out")
-  f <- varma(intercept=if(intercept) as.numeric(z$intercept) else NULL,
-             ar=if(order) z$ar else NULL,ma=if(order) z$ma else NULL)
-  f <- .varma_finish(f,Y,"fit_varma_echelon",length(pars),convergence=opt$convergence)
+  out <- .varma_conditional_fit(Y,pattern,order,order,intercept,r,control,"fit_varma_echelon")
+  f <- out$fit; z <- out$evaluation; r <- out$r
+  pars <- f$coefficients
   raw_ar <- raw_ma <- array(0,c(m,m,order)); raw_c <- numeric(m)
   for(j in seq_along(pars)) {
     kind<-pattern[j,1L];i<-pattern[j,2L]+1L;v<-pattern[j,3L]+1L;lag<-pattern[j,4L]
@@ -235,7 +187,7 @@ fit_varma_echelon <- function(Y,kidx=NULL,intercept=TRUE,plag=5,crit=.05,
   }
   f$kronecker_indices <- kidx; f$indices_estimated <- selected; f$selection <- selection
   f$echelon <- list(Phi0=z$Phi0,ar=raw_ar,ma=raw_ma,intercept=raw_c,pattern=pattern)
-  f$coefficients <- pars; f$optim.out <- opt
+  f$coefficients <- pars
   f$refit_args <- list(kidx=kidx,intercept=intercept,plag=plag,crit=crit,r=r,control=control)
   f
 }

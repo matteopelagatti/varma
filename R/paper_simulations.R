@@ -37,13 +37,14 @@ varma_paper_designs <- function() {
   list(model1=a,model2=b,model3=c,model4=d)
 }
 
-.varma_paper_method_names <- c("ECH_oracle","ECH_selected","IHR","HR1","NET","RBY","DPF","MLE")
+.varma_paper_method_names <- c("ECH_oracle","ECH_selected","CML","IHR","HR1","NET","RBY","DPF","MLE")
 
 .varma_paper_controls <- function(methods,estimator_args,mle_backend) {
   defaults <- list(ECH_oracle=list(control=list(maxit=500L,reltol=1e-8)),
     ECH_selected=list(plag=5L,crit=.05,control=list(maxit=500L,reltol=1e-8)),
+    CML=list(control=list(maxit=500L,reltol=1e-8)),
     IHR=list(),HR1=list(maxit=1L),NET=list(parallel=FALSE),RBY=list(),DPF=list(),
-    MLE=list(control=list(maxit=500L,reltol=1e-8)))
+    MLE=list(control=list(maxit=500L,reltol=1e-8),initial_cov="stationary",pilot="HR1"))
   if(!is.list(estimator_args) || (length(estimator_args) &&
       (is.null(names(estimator_args)) || anyDuplicated(names(estimator_args)) ||
        any(!names(estimator_args)%in%.varma_paper_method_names))))
@@ -64,7 +65,7 @@ varma_paper_designs <- function() {
 }
 
 .varma_paper_fit_function <- function(method,backend) switch(method,
-  ECH_oracle=fit_varma_echelon,ECH_selected=fit_varma_echelon,
+  ECH_oracle=fit_varma_echelon,ECH_selected=fit_varma_echelon,CML=fit_varma_cml,
   IHR=fit_varma_ihr,HR1=fit_varma_ihr,NET=fit_varma_net,RBY=fit_varma_rby,
   DPF=fit_varma_dpf,MLE=switch(backend,skf=fit_varma_skf,kfas=fit_varma_kfas,fkf=fit_varma_fkf))
 
@@ -193,7 +194,7 @@ varma_paper_designs <- function() {
 #' @param designs named list of stable, invertible varma population models.
 #' @param h maximum forecast horizon (default 5).
 #' @param irf_lags number of positive response lags (default 5); lag zero is excluded.
-#' @param methods estimation methods; defaults to all eight paper competitors.
+#' @param methods estimation methods; defaults to all nine paper competitors.
 #' DGP forecasts are always included separately.
 #' @param seed integer seed. Independent L'Ecuyer streams are assigned to cells
 #' and substreams to replications, preserving results across workers and resumes.
@@ -202,16 +203,18 @@ varma_paper_designs <- function() {
 #' @param burn_in simulated observations discarded before training (default 100,
 #' as in the original script).
 #' @param intercept logical; estimate intercepts (default FALSE, as in the paper).
-#' @param mle_backend stationary Gaussian likelihood backend; default "skf" is
+#' @param mle_backend Gaussian state-space likelihood backend; default "skf" is
 #' the compiled Kalman objective. Alternatives are "fkf" and "kfas".
-#' @param estimator_args named list of method-specific argument lists. MLE and
+#' @param estimator_args named list of method-specific argument lists. MLE, CML and
 #' both echelon estimators default to control=list(maxit=500,reltol=1e-8).
+#' MLE defaults to pilot="HR1" and initial_cov="stationary"; use
+#' MLE=list(initial_cov="fixed") to hold the pilot state covariance fixed.
 #' Other methods retain their package defaults; HR1 uses one iteration.
 #' @param resume reuse compatible completed checkpoints (default TRUE).
 #' @param keep_fits retain fitted objects (default FALSE). Raw IRF errors,
 #' forecast errors, forecasts relative to the DGP, and diagnostics are always saved.
 #' @param verbose report progress after each batch of checkpoints.
-#' @details The default experiment has 12 cells and 96,000 estimated models,
+#' @details The default experiment has 12 cells and 108,000 estimated models,
 #' plus 12,000 true-parameter forecast calculations. DPF uses the original
 #' expanded orders p+(m-1)q and mq. Oracle echelon receives population Kronecker
 #' indices; feasible echelon selects them using training data only. Neither is

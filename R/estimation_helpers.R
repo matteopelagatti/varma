@@ -101,14 +101,16 @@
          BIC = -2*loglik + npar*log(n), HQC = -2*loglik + 2*npar*log(log(n)))
 }
 
-# All three likelihood backends use the same parametrisation and a stationary
-# covariance recomputed at EVERY candidate, not only at the pilot estimate.
-.varma_ml <- function(Y, p, q, intercept, maxit, control, backend) {
+# All three likelihood backends share the pilot and initialization policy.
+.varma_ml <- function(Y, p, q, intercept, maxit, control, backend,
+                      initial_cov=c("stationary","fixed"),pilot=c("HR1","IHR")) {
+  initial_cov <- match.arg(initial_cov); pilot <- match.arg(pilot)
   Y <- .varma_data(Y,p,q)
   m <- ncol(Y); n <- nrow(Y); d <- m*max(p,q+1L)
-  pilot <- fit_varma_ihr(Y,p,q,intercept,maxit=maxit,ret="regression")
-  initial <- .varma_from_coefficients(pilot$coefficients,p,q,intercept,m)
-  initial$cov <- pilot$res_cov
+  pilot_fit <- fit_varma_ihr(Y,p,q,intercept,
+    maxit=if(pilot=="HR1") 1L else maxit,ret="regression")
+  initial <- .varma_from_coefficients(pilot_fit$coefficients,p,q,intercept,m)
+  initial$cov <- pilot_fit$res_cov
   # A feasible starting point is needed even when an unrestricted pilot has
   # roots outside the stable/invertible region.
   for (part in c("ar","ma")) {
@@ -126,8 +128,12 @@
   pack <- function(x) if (length(x)) as.numeric(aperm(x,c(1,3,2))) else numeric(0)
   inits <- c(if (intercept) colMeans(Y),pack(initial$ar),pack(initial$ma),ch[upper.tri(ch,TRUE)])
   Yt <- t(Y)
+  first <- varma_candidate_cpp(inits,m,p,q,intercept)
+  if (!isTRUE(first$valid)) stop("Could not construct a stable, invertible likelihood starting point")
+  pilot_P <- first$P
+  fixed_P <- if(initial_cov=="fixed") pilot_P else NULL
   make_candidate <- function(pars) {
-    z <- varma_candidate_cpp(pars,m,p,q,intercept)
+    z <- varma_candidate_cpp(pars,m,p,q,intercept,fixed_P)
     if (!isTRUE(z$valid)) return(NULL)
     z$mean <- as.numeric(z$mean)
     z$y <- if (intercept) sweep(Y,2,z$mean,"-") else Y
@@ -158,7 +164,7 @@
   objective <- function(pars) {
     val <- tryCatch({
       if (backend == "skf") return({
-        ll <- varma_loglik_cpp(pars,Yt,p,q,intercept)
+        ll <- varma_loglik_cpp(pars,Yt,p,q,intercept,fixed_P)
         if (is.finite(ll)) -ll else 1e100
       })
       z <- make_candidate(pars)
@@ -205,12 +211,16 @@
   }
   fit$transition_matrix <- z$T; fit$disturbance_cov <- z$W
   fit$initial_state_cov <- z$P
+  fit$initial_cov <- initial_cov; fit$pilot_method <- pilot
+  fit$pilot_state_cov <- pilot_P
   fit$n <- n; fit$nobs <- n; fit$npar <- length(opt$par); fit$y <- Y
   fit$residuals_start <- 1L
   fit$estimation_method <- paste0("fit_varma_",backend)
   fit$convergence <- opt$convergence; fit$optim.out <- opt
   fit$stability <- is_stable(fit)
-  fit$likelihood_type <- "stationary"
+  fit$likelihood_type <- if(initial_cov=="stationary") "stationary" else "fixed_initial_covariance"
+  fit$refit_args <- list(p=p,q=q,intercept=intercept,maxit=maxit,control=control,
+                         initial_cov=initial_cov,pilot=pilot)
   list(fit=fit,raw=raw)
 }
 

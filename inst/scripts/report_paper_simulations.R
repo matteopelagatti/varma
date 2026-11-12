@@ -253,9 +253,9 @@
 }
 
 .pr_labels <- c(DGP = "DGP", ECH_oracle = "ECH oracle", ECH_selected = "ECH selected",
-  IHR = "IHR", HR1 = "HR1", NET = "NET", RBY = "RBY", DPF = "DPF", MLE = "MLE")
+  CML = "CML", IHR = "IHR", HR1 = "HR1", NET = "NET", RBY = "RBY", DPF = "DPF", MLE = "MLE")
 .pr_colors <- c(DGP = "#222222", ECH_oracle = "#0072B2", ECH_selected = "#56B4E9",
-  IHR = "#D55E00", HR1 = "#CC79A7", NET = "#E69F00", RBY = "#009E73", DPF = "#797979", MLE = "#5C3D99")
+  CML = "#8C564B", IHR = "#D55E00", HR1 = "#CC79A7", NET = "#E69F00", RBY = "#009E73", DPF = "#797979", MLE = "#5C3D99")
 
 .pr_num <- function(x, digits = 3L) {
   vapply(x, function(z) if (is.na(z)) "--" else if (!is.finite(z)) as.character(z) else
@@ -587,7 +587,10 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
       paste(cfg$sample_sizes, collapse = ", "), cfg$nsim, cfg$seed),
     sprintf("Recorded compute/checkpoint elapsed time: %.2f hours; worker counts: %s.", wall / 3600,
       paste(workers, collapse = ", ")),
-    paste0("MLE backend: ", cfg$mle_backend, "; the echelon estimators use conditional Gaussian likelihood."),
+    paste0("MLE backend: ", cfg$mle_backend, "; initial covariance: ",
+      if(is.null(cfg$estimator_args$MLE$initial_cov)) "stationary" else cfg$estimator_args$MLE$initial_cov,
+      "; pilot: ", if(is.null(cfg$estimator_args$MLE$pilot)) "IHR" else cfg$estimator_args$MLE$pilot,
+      ". CML and the echelon estimators use conditional Gaussian likelihood."),
     "", "Primary results retain every finite loss, including extreme outputs and nonconverged estimates.",
     "Qualified results require stable AR, invertible MA and reported convergence where applicable.",
     "NET's convergence flag concerns its IHR pilot; HR1 and DPF have no iterative flag.",

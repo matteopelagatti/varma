@@ -1,7 +1,7 @@
 if(identical(Sys.getenv("VARMA_TEST_SOURCE"),"1")) {
   Rcpp::sourceCpp("src/rcpp_functions.cpp",showOutput=FALSE,
     cacheDir=file.path(Sys.getenv("TEMP",tempdir()),"varma-regression-source-cache"))
-  for(file in c("estimation_helpers.R","functions.R","echelon.R")) source(file.path("R",file))
+  for(file in c("estimation_helpers.R","functions.R","cml.R","echelon.R")) source(file.path("R",file))
 } else library(varma)
 check <- function(name,expr) {force(expr);cat("PASS:",name,"\n")}
 close <- function(a,b,tol=1e-9) stopifnot(isTRUE(all.equal(as.numeric(a),as.numeric(b),tolerance=tol)))

@@ -1497,7 +1497,8 @@ struct VarmaCandidate {
 };
 
 static bool build_varma_candidate(const arma::vec& pars,int m,int p,int q,
-                                 bool intercept,VarmaCandidate& z) {
+                                 bool intercept,VarmaCandidate& z,
+                                 const arma::mat* initial_cov=nullptr) {
   const int d=m*std::max(p,q+1);
   if (m<1 || p<0 || q<0 || !pars.is_finite() ||
       pars.n_elem != static_cast<arma::uword>(m*(intercept?1:0)+m*m*(p+q)+m*(m+1)/2)) return false;
@@ -1528,14 +1529,24 @@ static bool build_varma_candidate(const arma::vec& pars,int m,int p,int q,
   if(!ch.is_finite() || arma::any(ch.diag()<1e-10)) return false;
   z.Q=ch.t()*ch;z.W=z.R*z.Q*z.R.t();
   if(!z.Q.is_finite() || !z.W.is_finite()) return false;
-  z.P=dlyap_dense(z.T,z.W,200,1e-10,"auto");
+  // A fixed pilot covariance avoids a Lyapunov solve at every evaluation.
+  // Otherwise use the same adaptive doubling/Schur solver as the public API.
+  if(initial_cov) {
+    if(initial_cov->n_rows!=static_cast<arma::uword>(d) ||
+       initial_cov->n_cols!=static_cast<arma::uword>(d)) return false;
+    z.P=*initial_cov;
+  } else z.P=dlyap_dense(z.T,z.W,200,1e-10,"auto");
   return z.P.is_finite();
 }
 
 // [[Rcpp::export]]
-Rcpp::List varma_candidate_cpp(const arma::vec& pars,int m,int p,int q,bool intercept) {
+Rcpp::List varma_candidate_cpp(const arma::vec& pars,int m,int p,int q,bool intercept,
+                              Rcpp::Nullable<Rcpp::NumericMatrix> initial_cov=R_NilValue) {
   VarmaCandidate z;
-  if(!build_varma_candidate(pars,m,p,q,intercept,z)) return Rcpp::List::create(Rcpp::Named("valid")=false);
+  arma::mat fixed;
+  if(initial_cov.isNotNull()) fixed=Rcpp::as<arma::mat>(initial_cov.get());
+  if(!build_varma_candidate(pars,m,p,q,intercept,z,initial_cov.isNotNull()?&fixed:nullptr))
+    return Rcpp::List::create(Rcpp::Named("valid")=false);
   return Rcpp::List::create(Rcpp::Named("valid")=true,Rcpp::Named("T")=z.T,
     Rcpp::Named("R")=z.R,Rcpp::Named("Q")=z.Q,Rcpp::Named("P")=z.P,
     Rcpp::Named("W")=z.W,Rcpp::Named("mean")=z.mean,
@@ -1544,9 +1555,13 @@ Rcpp::List varma_candidate_cpp(const arma::vec& pars,int m,int p,int q,bool inte
 
 // [[Rcpp::export]]
 double varma_loglik_cpp(const arma::vec& pars,const arma::mat& Yt,
-                       int p,int q,bool intercept) {
+                       int p,int q,bool intercept,
+                       Rcpp::Nullable<Rcpp::NumericMatrix> initial_cov=R_NilValue) {
   VarmaCandidate z;
-  if(!build_varma_candidate(pars,Yt.n_rows,p,q,intercept,z)) return -arma::datum::inf;
+  arma::mat fixed;
+  if(initial_cov.isNotNull()) fixed=Rcpp::as<arma::mat>(initial_cov.get());
+  if(!build_varma_candidate(pars,Yt.n_rows,p,q,intercept,z,initial_cov.isNotNull()?&fixed:nullptr))
+    return -arma::datum::inf;
   arma::mat y=Yt;
   if(intercept) y.each_col()-=z.mean;
   arma::mat a(z.T.n_rows,1,arma::fill::zeros);

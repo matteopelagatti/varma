@@ -11,6 +11,18 @@ compile the optional preview document.
 
 ## Run from the repository root
 
+For an editable RStudio driver, open `inst/scripts/make_article_outputs.R`.
+The paths, estimators, sample size, figure dimensions and font size are at the
+top. Source that file to regenerate everything. The default four-panel figures
+are 7 x 6 inches with 14-point titles and 13-point tick and legend labels.
+Print near the exported width: shrinking a 7-inch figure to 3.5 inches halves
+every font. The driver includes a separate single-design, single-column example.
+
+The first run validates and aggregates the raw checkpoints. Subsequent runs
+reuse `summary-cache.rds` only if the input content hashes, trimming, collector
+and package version match. Style edits do not require repeated aggregation.
+`plots.rds` retains editable ggplot objects for use in a new R session.
+
 ```r
 # Once, if these plotting packages are not installed:
 install.packages(c("ggplot2", "scales"))
@@ -33,6 +45,19 @@ In RStudio, `source()` defines the function; the following function call runs
 the export. Relative paths are resolved from the current working directory.
 For example, first use `setwd("C:/GitHub/varma")` on this PC, or use absolute
 paths for both the script and the results directory.
+
+## CML and initialization settings (version 0.1.3)
+
+The new experiment includes `CML` in all figures and tables. CML uses the
+same conditional likelihood and analytic gradient as echelon, without its
+coefficient restrictions. Its curve should coincide with oracle echelon for
+Models 2 and 4; overlapping curves are expected. All methods are included
+by default, including CML. Legends wrap to at most four columns and support
+all nine estimators plus DGP without dropping plotting symbols.
+
+The manifest records the state-space MLE's pilot and initial covariance
+policy. Keep these settings fixed within an experiment. Numerical results
+from earlier package versions remain readable but do not contain CML.
 
 ## Important: the archived version 0.1.0 run
 
@@ -86,18 +111,18 @@ in tables and CSVs. Lines connect observed points; no root-n rate is imposed.
 article <- article_varma_paper_simulation(
   "paper-results",
   output_dir = "paper-results/article-selected",
-  methods = c("IHR", "MLE", "ECH_oracle", "ECH_selected"),
+  methods = c("CML", "MLE", "ECH_oracle", "ECH_selected"),
   forecast_n = 200,       # choose any sample size in this experiment
   subset = "available", # default; finite unstable/nonconverged results retained
   trim = 0.01,
-  width = 7, height = 5.3, font_size = 10,
+  width = 7, height = 6, font_size = 14,
   png = TRUE
 )
 
 # The result contains ordinary editable ggplot objects:
 article$plots$irf_rmse
 ggplot2::ggsave("my-irf-figure.pdf", article$plots$irf_rmse,
-               width = 7, height = 5.3)
+               width = 7, height = 6)
 ```
 
 Colours, shapes, line types, font and panel layout can be edited in `.pa_plot()`

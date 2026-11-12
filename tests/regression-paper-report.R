@@ -32,7 +32,7 @@ local({
   dir.create(directory)
   on.exit(unlink(directory, recursive = TRUE), add = TRUE)
   model <- varma::varma_paper_designs()[1L]
-  cfg <- list(schema = 1L, designs = model, methods = c("ECH_oracle", "MLE"),
+  cfg <- list(schema = 1L, designs = model, methods = c("ECH_oracle", "CML", "MLE"),
     nsim = 4L, sample_sizes = 20L, irf_lags = 2L, h = 2L, seed = 1L)
   manifest <- list(config = cfg, config_id = "regression-fixture")
   manifest_file <- file.path(directory, "manifest.rds")

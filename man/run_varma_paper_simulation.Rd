@@ -37,7 +37,7 @@ run_varma_paper_simulation(
 
 \item{irf_lags}{number of positive response lags (default 5); lag zero is excluded.}
 
-\item{methods}{estimation methods; defaults to all eight paper competitors.
+\item{methods}{estimation methods; defaults to all nine paper competitors.
 DGP forecasts are always included separately.}
 
 \item{seed}{integer seed. Independent L'Ecuyer streams are assigned to cells
@@ -52,11 +52,13 @@ as in the original script).}
 
 \item{intercept}{logical; estimate intercepts (default FALSE, as in the paper).}
 
-\item{mle_backend}{stationary Gaussian likelihood backend; default "skf" is
+\item{mle_backend}{Gaussian state-space likelihood backend; default "skf" is
 the compiled Kalman objective. Alternatives are "fkf" and "kfas".}
 
-\item{estimator_args}{named list of method-specific argument lists. MLE and
+\item{estimator_args}{named list of method-specific argument lists. MLE, CML and
 both echelon estimators default to control=list(maxit=500,reltol=1e-8).
+MLE defaults to pilot="HR1" and initial_cov="stationary"; use
+MLE=list(initial_cov="fixed") to hold the pilot state covariance fixed.
 Other methods retain their package defaults; HR1 uses one iteration.}
 
 \item{resume}{reuse compatible completed checkpoints (default TRUE).}
@@ -76,7 +78,7 @@ methods see the same training sample in each replication. The DGP benchmark
 forecasts from known parameters conditional on that same observed history.
 }
 \details{
-The default experiment has 12 cells and 96,000 estimated models,
+The default experiment has 12 cells and 108,000 estimated models,
 plus 12,000 true-parameter forecast calculations. DPF uses the original
 expanded orders p+(m-1)q and mq. Oracle echelon receives population Kronecker
 indices; feasible echelon selects them using training data only. Neither is
