@@ -1,9 +1,7 @@
 # Reporting regression checks use synthetic saved errors, never fitted models.
-script <- system.file("scripts", "report_paper_simulations.R", package = "varma")
-if (!nzchar(script)) {
-  candidates <- c("inst/scripts/report_paper_simulations.R", "../inst/scripts/report_paper_simulations.R")
-  script <- candidates[file.exists(candidates)][1L]
-}
+paths <- c("inst/scripts/report_paper_simulations.R", "../inst/scripts/report_paper_simulations.R",
+  system.file("scripts", "report_paper_simulations.R", package = "varma"))
+script <- paths[nzchar(paths) & file.exists(paths)][1L]
 source(script)
 near <- function(x, y, tolerance = 1e-12) stopifnot(isTRUE(all.equal(x, y, tolerance = tolerance)))
 must_fail <- function(expr, pattern) {
@@ -26,6 +24,16 @@ stopifnot(small$n_available == 3, small$n_paired == 2)
 near(.pr_loss(rep(0, 3), rep(1, 3))$rmse_mcse, 0)
 near(.pr_component(c(-1, 1), 3)[["median"]], 3)
 near(.pr_component(c(-1, 1), 3)[["rmse"]], 1)
+# 100 losses remove exactly one draw per tail. Benchmark ordering deliberately
+# differs: it must follow the estimator's retained draws, not its own ranking.
+tr <- .pr_loss(c(NA, 1:100), c(1, (101:200)^2), trim_sample = TRUE)
+near(tr$mse, mean(2:99))
+near(tr$reference_mse, mean((102:199)^2))
+near(tr$relative_rmse, sqrt(mean(2:99) / mean((102:199)^2)))
+stopifnot(tr$n_eligible == 100, tr$n_available == 98, tr$n_trimmed == 2,
+  tr$n_paired == 98, all(is.na(unlist(tr[grep("_mcse$", names(tr))]))))
+stopifnot(.pr_loss(1:99, trim_sample = TRUE)$n_trimmed == 0,
+  .pr_loss(c(NA, Inf), trim_sample = TRUE)$n_available == 0)
 
 local({
   directory <- tempfile("varma-report-regression-")
@@ -48,7 +56,9 @@ local({
         fit_seconds = .1, evaluation_seconds = .01,
         convergence = if (method == "MLE" && b == 2L) 1L else 0L,
         convergence_type = if (method == "DGP") "not_applicable" else "estimator",
-        ar_stable = TRUE, ma_invertible = TRUE, qualified = method != "MLE" || b != 2L,
+        ar_stable = !(method == "CML" && b == 1L),
+        ma_invertible = !(method == "CML" && b == 4L),
+        qualified = method != "MLE" || b != 2L,
         indices = if (method == "ECH_oracle") paste(indices, collapse = ",") else "",
         index_correct = if (method == "ECH_oracle") TRUE else NA,
         warnings = "", error = ""),
@@ -77,13 +87,43 @@ local({
   near(fc$mse_mcse, stats::sd(losses) / sqrt(3))
   stopifnot(fc$n_available == 3, fc$n_paired == 3)
   fcq <- subset(z$forecast, method == "MLE" & subset == "qualified" & horizon == 1 & variable == 0)
-  near(fcq$mse, mean(losses[c(1, 3)])); stopifnot(fcq$n_available == 2)
+  near(fcq$mse, mean(losses)); stopifnot(fcq$n_available == 3)
+  # Stale TRUE flags cannot admit unstable or noninvertible CML fits.
+  cq <- subset(z$irf, method == "CML" & subset == "qualified" & horizon == 0)
+  near(cq$mse, mean((c(2, 3) / 10)^2)); stopifnot(cq$n_available == 2)
+  stopifnot(subset(z$failures, method == "MLE")$qualified == 4,
+    subset(z$failures, method == "CML")$qualified == 2)
+  trimmed <- subset(z$forecast, method == "MLE" & subset == "trimmed" & horizon == 1 & variable == 0)
+  near(trimmed$mse, fc$mse)
+  stopifnot(trimmed$n_trimmed == 0, is.na(trimmed$rmse_mcse))
   comp <- subset(z$irf_components, method == "MLE" & subset == "available" &
     response == 1 & shock == 2 & horizon == 1)
   truth <- varma::irf(model[[1L]], 2L, orth = "none")[1, 2, 2]
   near(comp$median, truth + .25); near(comp$bias, .25)
   stopifnot(subset(z$failures, method == "MLE")$forecast_failures == 1,
     subset(z$failures, method == "MLE")$nonconverged == 1)
+  if (identical(Sys.getenv("VARMA_ARTICLE_RENDER_TEST"), "true")) {
+    source(file.path(dirname(script), "article_paper_simulations.R"))
+    manifest$config$package_version <- as.character(utils::packageVersion("varma"))
+    saveRDS(manifest, manifest_file)
+    raw_hash <- tools::md5sum(c(file, manifest_file))
+    exports <- lapply(c("available", "qualified", "trimmed"), function(sample) {
+      article_varma_paper_simulation(directory,
+        output_dir = file.path(directory, "article", sample), subset = sample,
+        cache_dir = file.path(directory, "article"), png = FALSE)
+    })
+    stopifnot(identical(raw_hash, tools::md5sum(c(file, manifest_file))))
+    for (i in seq_along(exports)) {
+      a <- exports[[i]]
+      stopifnot(file.exists(file.path(a$output_dir, "article_figures.pdf")),
+        all(file.exists(a$tables)),
+        all(a$summaries$forecast$subset == c("available", "qualified", "trimmed")[i]))
+      plotted <- a$plots$forecast_rmse$data
+      stopifnot(identical(plotted$value, plotted$rmse))
+    }
+    stopifnot(all(is.na(exports[[3]]$summaries$forecast$rmse_mcse)),
+      grepl("not independently trimmed", exports[[3]]$captions[["forecast_relative_rmse"]]))
+  }
   copy <- file.path(directory, "chunk-001-000005-000008.rds")
   file.copy(file, copy)
   must_fail(.pr_collect(directory), "Duplicate")

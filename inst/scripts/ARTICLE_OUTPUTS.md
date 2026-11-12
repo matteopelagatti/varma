@@ -12,6 +12,34 @@ compile the optional preview document.
 ## Run from the repository root
 
 For an editable RStudio driver, open `inst/scripts/make_article_outputs.R`.
+Run `source("inst/scripts/make_article_outputs.R")` to produce all three versions:
+
+- `paper-results/article/full/`: all finite usable outputs.
+- `paper-results/article/qualified/`: returned fits with stable AR and invertible
+  MA, including nonconverged fits. Unknown stability/invertibility cannot qualify.
+- `paper-results/article/trimmed/`: full usable outputs with 1% of replication
+  losses removed from **each** tail, separately for every reported accuracy measure.
+
+Each folder contains plots, LaTeX tables, CSV statistics and `article_figures.pdf`.
+The R objects are `articles$full`, `articles$qualified` and `articles$trimmed`.
+All three reuse the same validated numerical cache in the parent folder.
+Previously exported files directly in that parent folder are not refreshed;
+use these three subfolders. No reinstallation of varma or new simulations is needed.
+
+Qualification is recomputed from saved diagnostics, ignoring the older saved
+qualification flag. Nonconvergence remains a separate diagnostic. Raw checkpoints
+and the simulation's original root-level summary CSVs are unchanged.
+
+Trimming ranks whole replication losses after pooling the entries/horizons
+relevant to each statistic. It removes `floor(0.01 * B)` at each end, so fewer
+than 100 usable replications imply no trimming. Ties use replication order.
+The retained draws may differ across methods, horizons and targets. For relative
+RMSE, benchmark losses use the estimator's retained draws; the benchmark is not
+trimmed independently. Thus the denominator can differ from the separately
+reported DGP RMSE. CSV columns `n_eligible`, `n_trimmed`, `n_available` and
+`n_paired` document the denominators. Ordinary delta-method MCSEs are suppressed
+for trimmed accuracy statistics. Timing and diagnostic tables still use all attempts.
+
 The paths, estimators, sample size, figure dimensions and font size are at the
 top. Source that file to regenerate everything. The default four-panel figures
 are 7 x 6 inches with 14-point titles and 13-point tick and legend labels.
@@ -113,8 +141,9 @@ including its forecast failures.
   provenance, settings, execution records and hashes of the input checkpoints.
 
 The individual figures are vector PDFs, with optional 300-dpi PNG copies.
-Panels have separate vertical scales. Untrimmed plots use log axes to retain
-very large finite losses; exact zeros cannot be shown on those axes but remain
+Panels have separate vertical scales. All IRF-RMSE plots use linear axes.
+Forecast and timing plots use log axes to retain very large finite values;
+exact zeros cannot be shown on those axes but remain
 in tables and CSVs. Lines connect observed points; no root-n rate is imposed.
 
 ## Customize
@@ -196,11 +225,12 @@ forecasts, separating that discrepancy from future shocks.
 
 The default `available` subset includes every usable result, even when an
 estimate is unstable or does not converge. `qualified` additionally requires
-stability, invertibility and applicable reported convergence. Neither is an
+stability and invertibility, irrespective of optimizer convergence. Neither is an
 unconditional risk estimate when outputs are missing. Usable counts and all-
 attempt diagnostic counts accompany the accuracy tables. Timing and index-
 selection summaries always use all attempts, irrespective of the accuracy
 subset. Delta-method MCSEs can be unreliable with very heavy-tailed losses.
 
-These checkpoints do not supply FEVD errors, bootstrap coverage or fitted-VAR
-benchmarks. The exporter does not infer them from the saved IRF/forecast data.
+These checkpoints do not supply FEVD errors or bootstrap coverage. The exporter
+does not infer them from the saved IRF/forecast data. VAR benchmarks are included
+when VAR_BIC is present in the simulation manifest.

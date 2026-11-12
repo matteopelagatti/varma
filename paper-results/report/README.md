@@ -6,7 +6,7 @@ Recorded compute/checkpoint elapsed time: 1.41 hours; worker counts: 7.
 MLE backend: skf; initial covariance: stationary; pilot: HR1. CML and the echelon estimators use conditional Gaussian likelihood.
 
 Primary results retain every finite loss, including extreme outputs and nonconverged estimates.
-Qualified results require stable AR, invertible MA and reported convergence where applicable.
+Qualified results require stable AR and invertible MA, irrespective of optimizer convergence.
 NET's convergence flag concerns its IHR pilot; HR1, DPF and VAR (BIC) have no iterative flag.
 The paper-style trimmed comparison removes 1.0% of replication losses from each tail.
 Neither availability nor qualification makes these unconditional risks of an algorithm that can fail.
@@ -60,18 +60,30 @@ runs the reported elapsed total is the sum of logged invocations, not calendar t
 ## Overall diagnostics (counts)
 
 ```
-       method fit_failures irf_failures forecast_failures nonconverged unstable_ar noninvertible_ma qualified
-          CML            0            0                 0            1           0                0     11999
-          DGP            0            0                 0            0           0                0     12000
-          DPF            0            0                 0            0          18               12     11977
-   ECH_oracle            0            0                 0            0           0                0     12000
- ECH_selected            0            0                 0            0           0                0     12000
-          HR1            0            0                 0            0           3               25     11973
-          IHR            0            0                 0         6650        1117             1374      5350
-          MLE            0            0                 0            1           0                0     11999
-          NET            0            0                 0         6650         183              536      5152
-          RBY            0            0                 0          338           0                0     11662
-      VAR_BIC            0            0                 0            0           1                0     11999
+       method fit_failures irf_failures forecast_failures nonconverged
+          CML            0            0                 0            1
+          DGP            0            0                 0            0
+          DPF            0            0                 0            0
+   ECH_oracle            0            0                 0            0
+ ECH_selected            0            0                 0            0
+          HR1            0            0                 0            0
+          IHR            0            0                 0         6650
+          MLE            0            0                 0            1
+          NET            0            0                 0         6650
+          RBY            0            0                 0          338
+      VAR_BIC            0            0                 0            0
+ unstable_ar noninvertible_ma qualified
+           0                0     12000
+           0                0     12000
+          18               12     11977
+           0                0     12000
+           0                0     12000
+           3               25     11973
+        1117             1374     10586
+           0                0     12000
+         183              536     11452
+           0                0     12000
+           1                0     11999
 ```
 
 ## Exact index recovery at the largest sample size

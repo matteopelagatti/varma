@@ -17,15 +17,30 @@
 
 # Scaling before computing variances matters here: some finite forecast losses
 # are near 1e300, and sd(loss) would square them and overflow unnecessarily.
-.pr_loss <- function(loss, reference = NULL, trim = .01) {
+.pr_loss <- function(loss, reference = NULL, trim = .01, trim_sample = FALSE) {
+  eligible <- sum(is.finite(loss))
+  removed <- 0L
+  if (trim_sample && eligible) {
+    # Rank whole replication losses, never individual errors. Keep reference
+    # forecasts on exactly these draws; do not trim the benchmark independently.
+    ids <- which(is.finite(loss))
+    ids <- ids[order(loss[ids])]
+    k <- floor(trim * length(ids))
+    if (k) {
+      drop <- c(head(ids, k), tail(ids, k))
+      loss[drop] <- NA_real_
+      removed <- length(drop)
+    }
+  }
   x <- loss[is.finite(loss)]
   n <- length(x)
   mse <- if (n) .pr_mean(x) else NA_real_
   rmse <- sqrt(mse)
   se <- if (n) .pr_mcse(x) else NA_real_
-  ans <- list(n_available = n, mse = mse, rmse = rmse, mse_mcse = se,
+  ans <- list(n_eligible = eligible, n_trimmed = removed,
+    n_available = n, mse = mse, rmse = rmse, mse_mcse = se,
     rmse_mcse = if (isTRUE(rmse == 0)) 0 else (se / rmse) / 2,
-    trimmed_rmse = if (n) sqrt(mean(x, trim = trim)) else NA_real_,
+    trimmed_rmse = if (trim_sample) rmse else if (n) sqrt(mean(x, trim = trim)) else NA_real_,
     median_replication_rmse = if (n) stats::median(sqrt(x)) else NA_real_,
     max_replication_rmse = if (n) sqrt(max(x)) else NA_real_,
     top_1pct_loss_share = if (!n) NA_real_ else if (max(x) == 0) 0 else {
@@ -58,6 +73,9 @@
       }
     }
   }
+  # The ordinary mean's delta-method MCSE ignores selection by order statistics.
+  # Do not present it as an uncertainty estimate for a trimmed statistic.
+  if (trim_sample) ans[grep("_mcse$", names(ans))] <- NA_real_
   ans
 }
 
@@ -129,7 +147,10 @@
           z <- rep$results[[method]]; s <- z$status
           if (!identical(s$method, method) || length(s$qualified) != 1L)
             stop("Invalid method diagnostics in ", file)
-          qualified[b, method] <- isTRUE(s$qualified)
+          # Saved checkpoints used to require optimizer convergence as well.
+          # Recompute the reporting flag without changing those checkpoints.
+          s$qualified <- isTRUE(s$fit_ok) && isTRUE(s$ar_stable) && isTRUE(s$ma_invertible)
+          qualified[b, method] <- s$qualified
           if (isTRUE(s$irf_ok)) {
             if (!identical(dim(z$irf_error), c(m, m, as.integer(J))) ||
                 any(!is.finite(z$irf_error^2))) stop("Invalid available IRF in ", file)
@@ -200,7 +221,7 @@
         replication = which(present), qualified = qualified[present, method],
         irf_mse = L$irf[[method]][present], forecast_mse = L$forecast[[method]][present],
         forecast_gap_mse = L$forecast_gap[[method]][present]))
-      for (subset in c("available", "qualified")) {
+      for (subset in c("available", "qualified", "trimmed")) {
         mask <- if (subset == "qualified") present & qualified[, method] else present
         ref <- L$irf$ECH_oracle
         if (!is.null(ref) && subset == "qualified") ref[!qualified[, "ECH_oracle"]] <- NA_real_
@@ -211,7 +232,7 @@
           if (!is.null(refj) && subset == "qualified") refj[!qualified[, "ECH_oracle"]] <- NA_real_
           append_row("irf", as.data.frame(c(list(design = design, n = n, method = method,
             subset = subset, horizon = j, attempted = attempted, reference = "ECH_oracle"),
-            .pr_loss(loss, refj, trim))))
+            .pr_loss(loss, refj, trim, trim_sample = subset == "trimmed"))))
         }
         for (h in 0:H) for (v in 0:m) for (target in c("forecast", "forecast_gap")) {
           hs <- if (h == 0) seq_len(H) else h
@@ -222,9 +243,10 @@
           reference <- if (target == "forecast") .pr_row_loss(F$DGP[, cols, drop = FALSE]) else NULL
           append_row(target, as.data.frame(c(list(design = design, n = n, method = method,
             subset = subset, horizon = h, variable = v, attempted = attempted,
-            reference = if (target == "forecast") "DGP" else NA_character_), .pr_loss(loss, reference, trim))))
+            reference = if (target == "forecast") "DGP" else NA_character_),
+            .pr_loss(loss, reference, trim, trim_sample = subset == "trimmed"))))
         }
-        if (method != "DGP") {
+        if (method != "DGP" && subset != "trimmed") {
           for (j in seq_len(J)) for (shock in seq_len(m)) for (response in seq_len(m)) {
             col <- response + (shock - 1L) * m + (j - 1L) * m * m
             append_row("irf_components", as.data.frame(c(list(design = design, n = n,
@@ -232,7 +254,7 @@
               as.list(.pr_component(E[[method]][mask, col], truth[response, shock, j])))))
           }
         }
-        for (v in seq_len(m)) for (h in seq_len(H)) {
+        if (subset != "trimmed") for (v in seq_len(m)) for (h in seq_len(H)) {
           append_row("forecast_components", as.data.frame(c(list(design = design, n = n,
             method = method, subset = subset, horizon = h, variable = v),
             as.list(.pr_component(F[[method]][mask, h + (v - 1L) * H])))))
@@ -245,7 +267,7 @@
           if (subset == "qualified") b[!qualified[, reference]] <- NA_real_
           append_row("paired_comparisons", as.data.frame(c(list(design = design, n = n,
             method = method, subset = subset, target = target, reference = reference),
-            .pr_loss(a, b, trim))))
+            .pr_loss(a, b, trim, trim_sample = subset == "trimmed"))))
         }
       }
     }
@@ -568,7 +590,7 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
         `Paired B` = d$n_paired, check.names = FALSE)
       file <- paste0("forecast_design", i, "_h", h, "_", subset, ".tex")
       .pr_table(tab, paste0("Design ", i, ": forecast accuracy at horizon ", h, " (", subset, ")."),
-        "Variables are pooled within replication. RMSE is untrimmed. Relative RMSE uses DGP forecasts on the same usable replications. MCSEs use independent replication losses and a delta approximation; they can be unstable with extreme losses. Qualified requires stability, invertibility and applicable convergence. B and Paired B disclose the denominators.",
+        "Variables are pooled within replication. RMSE is untrimmed. Relative RMSE uses DGP forecasts on the same usable replications. MCSEs use independent replication losses and a delta approximation; they can be unstable with extreme losses. Qualified requires stability and invertibility, irrespective of optimizer convergence. B and Paired B disclose the denominators.",
         file.path(report_dir, "tables", file), d)
       table_files <- c(table_files, file)
     }
@@ -622,7 +644,7 @@ report_varma_paper_simulation <- function(input_dir = "paper-results",
       "; pilot: ", if(is.null(cfg$estimator_args$MLE$pilot)) "IHR" else cfg$estimator_args$MLE$pilot,
       ". CML and the echelon estimators use conditional Gaussian likelihood."),
     "", "Primary results retain every finite loss, including extreme outputs and nonconverged estimates.",
-    "Qualified results require stable AR, invertible MA and reported convergence where applicable.",
+    "Qualified results require stable AR and invertible MA, irrespective of optimizer convergence.",
     "NET's convergence flag concerns its IHR pilot; HR1, DPF and VAR (BIC) have no iterative flag.",
     sprintf("The paper-style trimmed comparison removes %.1f%% of replication losses from each tail.", trim * 100),
     "Neither availability nor qualification makes these unconditional risks of an algorithm that can fail.",

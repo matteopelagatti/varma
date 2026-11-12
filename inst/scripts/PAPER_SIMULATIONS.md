@@ -228,6 +228,14 @@ deliberately one-step and has no iterative convergence requirement; NET's
 convergence field concerns its IHR pilot. Neither subset conceals failures:
 consult the failure table before interpreting rankings.
 
+**Updated reporting rule:** the R reporting and article-export scripts recompute
+qualification using stable AR and invertible MA only, irrespective of convergence.
+The paragraph above describes the original simulation-written summaries and saved
+flags, which are preserved. Use the regenerated exports for the revised definition.
+`source("inst/scripts/make_article_outputs.R")` produces `article/full/`,
+`article/qualified/` and `article/trimmed/`; the last trims 1% from each tail of
+the full sample's replication losses. See `ARTICLE_OUTPUTS.md` for denominators.
+
 Primary RMSE is `sqrt(mean(squared_error))`, with no truncation of large errors.
 The additional `trimmed_rmse` column reproduces a symmetric 1% trimming rule
 for comparison with the old figures; it is not the primary estimate of risk.
@@ -287,7 +295,7 @@ Outputs go into `paper-results/report/`:
 The figures retain the familiar names `tf_consist`, `log_times`, `irf_exp1` to
 `irf_exp4`, and `fcst_rmse1` to `fcst_rmse4`. The refreshed forecast figures
 include all variables and sample sizes. Their captions distinguish ordinary
-untrimmed RMSE, the convergence/stability subset (`_qualified`), and the
+untrimmed RMSE, the stability/invertibility subset (`_qualified`), and the
 separate 1%-trimmed IRF comparison. Historical Overleaf figures are not replaced.
 Review captions when inserting the new graphics: the estimators, timing units
 and benchmark definitions have changed since the original slides.

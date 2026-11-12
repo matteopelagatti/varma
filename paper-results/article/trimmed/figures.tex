@@ -1,0 +1,27 @@
+% Requires graphicx. Define \varmaresults as the path to this export folder.
+\providecommand{\varmaresults}{.}
+\begin{figure}[p]\centering
+\includegraphics[width=\linewidth]{\varmaresults/figures/irf_rmse.pdf}
+\caption{Reduced-form IRF accuracy, pooling lags 1-5 and all matrix entries within each replication before averaging losses across replications. Linear vertical scale. Trimmed full sample (including usable nonconverged, unstable or noninvertible fits). Trimming removes floor(0.01 times B) replication losses from EACH tail, where B is the number of finite losses, before averaging and taking the square root. Losses are ranked separately for each method, sample size, design and accuracy measure. Accuracy is conditional on usable outputs; consult usable counts and diagnostics. Vertical axes vary by design. Lines connect simulated points. }
+\label{fig:sim-irf-rmse}
+\end{figure}
+\begin{figure}[p]\centering
+\includegraphics[width=\linewidth]{\varmaresults/figures/forecast_rmse.pdf}
+\caption{Forecast accuracy at n = 400. Variables are pooled within replication. DGP uses the true parameters with the same observed training history.  Trimmed full sample (including usable nonconverged, unstable or noninvertible fits). Trimming removes floor(0.01 times B) replication losses from EACH tail, where B is the number of finite losses, before averaging and taking the square root. Losses are ranked separately for each method, sample size, design and accuracy measure. Accuracy is conditional on usable outputs; consult usable counts and diagnostics. Vertical axes are logarithmic and vary by design; exact zeros appear only in the tables. Lines connect simulated points without a fitted convergence rate. }
+\label{fig:sim-forecast-rmse}
+\end{figure}
+\begin{figure}[p]\centering
+\includegraphics[width=\linewidth]{\varmaresults/figures/forecast_relative_rmse.pdf}
+\caption{Forecast accuracy relative to DGP at n = 400. Each ratio divides two RMSEs computed on the same usable replications; it is not the mean of replication-wise ratios. The dotted line is one. The estimator's retained replication losses determine the paired sample; DGP losses use the same draws and are not independently trimmed. Consequently the denominator can differ from the separately plotted DGP curve.  Trimmed full sample (including usable nonconverged, unstable or noninvertible fits). Trimming removes floor(0.01 times B) replication losses from EACH tail, where B is the number of finite losses, before averaging and taking the square root. Losses are ranked separately for each method, sample size, design and accuracy measure. Accuracy is conditional on usable outputs; consult usable counts and diagnostics. Vertical axes are logarithmic and vary by design; exact zeros appear only in the tables. Lines connect simulated points without a fitted convergence rate. }
+\label{fig:sim-forecast-relative-rmse}
+\end{figure}
+\begin{figure}[p]\centering
+\includegraphics[width=\linewidth]{\varmaresults/figures/forecast_gap_rmse.pdf}
+\caption{Distance from the DGP conditional forecast, pooling all horizons and variables within replication. This excludes the realized future shock contribution.  Trimmed full sample (including usable nonconverged, unstable or noninvertible fits). Trimming removes floor(0.01 times B) replication losses from EACH tail, where B is the number of finite losses, before averaging and taking the square root. Losses are ranked separately for each method, sample size, design and accuracy measure. Accuracy is conditional on usable outputs; consult usable counts and diagnostics. Vertical axes are logarithmic and vary by design; exact zeros appear only in the tables. Lines connect simulated points without a fitted convergence rate. }
+\label{fig:sim-forecast-gap-rmse}
+\end{figure}
+\begin{figure}[p]\centering
+\includegraphics[width=\linewidth]{\varmaresults/figures/fit_time.pdf}
+\caption{Mean elapsed estimation time, including failed attempts, measured inside the simulation workers. All attempts are used irrespective of the accuracy subset. Worker times do not measure overall wall-clock time. Trimmed full sample (including usable nonconverged, unstable or noninvertible fits). Trimming removes floor(0.01 times B) replication losses from EACH tail, where B is the number of finite losses, before averaging and taking the square root. Losses are ranked separately for each method, sample size, design and accuracy measure. Accuracy is conditional on usable outputs; consult usable counts and diagnostics. Vertical axes are logarithmic and vary by design; exact zeros appear only in the tables. Lines connect simulated points without a fitted convergence rate. }
+\label{fig:sim-fit-time}
+\end{figure}

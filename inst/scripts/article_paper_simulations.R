@@ -174,8 +174,9 @@
 #' figures.tex and the companion preview. No confidence bands are invented.
 article_varma_paper_simulation <- function(input_dir = "paper-results",
     output_dir = file.path(input_dir, "article"), methods = NULL,
-    subset = c("available", "qualified"), trim = .01, forecast_n = NULL,
-    allow_partial = FALSE, width = 7, height = 6, font_size = 14, png = TRUE) {
+    subset = c("available", "qualified", "trimmed"), trim = .01, forecast_n = NULL,
+    allow_partial = FALSE, width = 7, height = 6, font_size = 14, png = TRUE,
+    cache_dir = output_dir) {
   subset <- match.arg(subset)
   if (length(trim) != 1L || !is.finite(trim) || trim < 0 || trim >= .5)
     stop("trim must lie in [0, 0.5)")
@@ -196,19 +197,26 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   output_dir <- normalizePath(output_dir, winslash = "/", mustWork = TRUE)
   if (tolower(input_dir) == tolower(output_dir)) stop("Use a separate output directory")
-  z <- .pa_collect_cached(input_dir, output_dir, helpers, trim, allow_partial)
+  dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+  z <- .pa_collect_cached(input_dir, cache_dir, helpers, trim, allow_partial)
   d <- .pa_data(z, methods, subset)
   complete <- all(z$completion$missing == 0L)
   status_note <- if (complete) "" else "INCOMPLETE RUN: only completed replications are included. "
   correction_note <- if (length(d$withheld)) paste0("Forecast results for ",
     paste(d$withheld, collapse = ", "), " are withheld: this run used varma 0.1.0 with the confirmed residual-handling bug. Rerun those estimates with a corrected release.") else ""
   if (nzchar(correction_note)) warning(correction_note, call. = FALSE)
-  common <- paste0(status_note, if (subset == "available")
-    "All usable estimates are included, even when nonconverged or unstable. " else
-    "The qualified subset requires stable AR, invertible MA and applicable reported convergence. ",
+  trim_note <- sprintf("Trimming removes floor(%.3g times B) replication losses from EACH tail, where B is the number of finite losses, before averaging and taking the square root. Losses are ranked separately for each method, sample size, design and accuracy measure. ", trim)
+  common <- paste0(status_note, switch(subset,
+    available = "Full sample: all usable estimates are included, even when nonconverged, unstable or noninvertible. ",
+    qualified = "Qualified sample: returned fits must have stable AR and invertible MA; optimizer nonconvergence or unknown convergence does not exclude them. ",
+    trimmed = paste0("Trimmed full sample (including usable nonconverged, unstable or noninvertible fits). ", trim_note)),
     "Accuracy is conditional on usable outputs; consult usable counts and diagnostics. ")
-  mcse <- "Parentheses contain delta-method Monte Carlo standard errors based on independent replication losses; extreme losses can make them unreliable. "
-  trim_note <- sprintf("The trimmed statistic removes %.3g%% of replication losses from EACH tail before averaging and taking the square root; it is not ordinary RMSE. ", 100 * trim)
+  mcse <- if (subset == "trimmed")
+    "Monte Carlo standard errors for trimmed accuracy statistics are not reported: the ordinary-mean formula does not account for trimming. " else
+    "Parentheses contain delta-method Monte Carlo standard errors based on independent replication losses; extreme losses can make them unreliable. "
+  ratio_note <- if (subset == "trimmed")
+    "The estimator's retained replication losses determine the paired sample; DGP losses use the same draws and are not independently trimmed. Consequently the denominator can differ from the separately plotted DGP curve. " else
+    "Ratios use common usable replications for each estimator and DGP. "
   axis_note <- "Vertical axes are logarithmic and vary by design; exact zeros appear only in the tables. Lines connect simulated points without a fitted convergence rate. "
   for (subdir in c("figures", "tables", "data")) dir.create(file.path(output_dir, subdir), showWarnings = FALSE)
   for (nm in setdiff(names(d), "withheld")) utils::write.csv(d[[nm]],
@@ -238,21 +246,22 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
   add <- function(name, data, x, y, xlab, ylab, caption, shown = methods,
       log_y = TRUE, reference = NULL) {
     if (!nrow(data)) return(invisible(NULL))
+    if (subset == "trimmed" && grepl("RMSE", ylab, fixed = TRUE)) ylab <- paste("Trimmed", ylab)
     plots[[name]] <<- .pa_plot(data, cfg, helpers, x, y, xlab, ylab, shown,
       font_size, log_y, reference)
     captions[[name]] <<- paste0(caption, common, if (log_y) axis_note else
       "Vertical axes vary by design. Lines connect simulated points. ")
   }
-  add("irf_rmse", ir, "n", "rmse", "Sample size", "IRF RMSE (log scale)",
-    sprintf("Reduced-form IRF accuracy, pooling lags 1-%d and all matrix entries within each replication before averaging losses across replications. ", cfg$irf_lags))
-  add("irf_rmse_trimmed", ir, "n", "trimmed_rmse", "Sample size", "Trimmed IRF RMSE",
+  add("irf_rmse", ir, "n", "rmse", "Sample size", "IRF RMSE",
+    sprintf("Reduced-form IRF accuracy, pooling lags 1-%d and all matrix entries within each replication before averaging losses across replications. Linear vertical scale. ", cfg$irf_lags), log_y = FALSE)
+  if (subset != "trimmed") add("irf_rmse_trimmed", ir, "n", "trimmed_rmse", "Sample size", "Trimmed IRF RMSE",
     paste0("Reduced-form IRF accuracy. ", trim_note), log_y = FALSE)
   add("forecast_rmse", fch, "horizon", "rmse", "Forecast horizon", "Forecast RMSE (log scale)",
     paste0("Forecast accuracy at n = ", forecast_n, ". Variables are pooled within replication. DGP uses the true parameters with the same observed training history. ", correction_note, " "), shown = c("DGP", eligible))
   add("forecast_relative_rmse", fch[fch$method != "DGP", , drop = FALSE], "horizon", "relative_rmse",
     "Forecast horizon", "RMSE / DGP RMSE (log scale)",
     paste0("Forecast accuracy relative to DGP at n = ", forecast_n,
-      ". Each ratio divides two RMSEs computed on the same usable replications; it is not the mean of replication-wise ratios. The dotted line is one. ", correction_note, " "),
+      ". Each ratio divides two RMSEs computed on the same usable replications; it is not the mean of replication-wise ratios. The dotted line is one. ", ratio_note, correction_note, " "),
     shown = eligible, reference = 1)
   add("forecast_gap_rmse", gap[!gap$withheld, , drop = FALSE], "n", "rmse", "Sample size",
     "Forecast gap RMSE (log scale)", paste0("Distance from the DGP conditional forecast, pooling all horizons and variables within replication. This excludes the realized future shock contribution. ", correction_note, " "), shown = eligible)
@@ -283,18 +292,19 @@ article_varma_paper_simulation <- function(input_dir = "paper-results",
   }
   wide(ir, "rmse", "rmse_mcse", "Reduced-form IRF accuracy.",
     paste0(mcse, "Losses pool all entries and positive response lags within replication. "), "irf_rmse")
-  wide(ir, "trimmed_rmse", caption = "Trimmed reduced-form IRF accuracy.", note = trim_note, name = "irf_rmse_trimmed")
+  if (subset != "trimmed") wide(ir, "trimmed_rmse", caption = "Trimmed reduced-form IRF accuracy.", note = trim_note, name = "irf_rmse_trimmed")
   wide(fc, "rmse", "rmse_mcse", "Forecast accuracy, pooled over horizons and variables.",
     paste0(mcse, correction_note, " "), "forecast_rmse", c("DGP", methods))
   wide(fc[fc$method != "DGP", ], "relative_rmse", "relative_rmse_mcse", "Forecast RMSE relative to DGP.",
-    paste0(mcse, "Ratios use common usable replications for each estimator and DGP. ", correction_note, " "), "forecast_relative_rmse")
+    paste0(mcse, ratio_note, correction_note, " "), "forecast_relative_rmse")
   wide(gap, "rmse", "rmse_mcse", "Distance from the DGP conditional forecast.",
     paste0(mcse, "All forecast horizons and variables are pooled within replication. ", correction_note, " "), "forecast_gap_rmse")
   wide(d$timing[d$timing$method != "DGP", ], "mean_fit_seconds", caption = "Mean elapsed seconds per attempted fit.",
     note = "Timings include all attempted fits irrespective of the accuracy subset, with failures and concurrent worker load. They exclude forecast evaluation and cannot be summed to obtain wall-clock duration. ", name = "fit_time")
-  wide(ir, "n_available", caption = "Usable IRF replications.", note = "Counts correspond to the selected accuracy subset. ", name = "irf_counts")
+  count_note <- "Counts correspond to the selected accuracy subset, after trimming where applicable. CSV columns n_eligible and n_trimmed disclose counts before trimming and removed counts. "
+  wide(ir, "n_available", caption = "Usable IRF replications.", note = count_note, name = "irf_counts")
   wide(fc[fc$method != "DGP", ], "n_available", caption = "Usable forecast replications.",
-    note = paste0("Counts correspond to the selected accuracy subset. ", correction_note, " "), name = "forecast_counts")
+    note = paste0(count_note, correction_note, " "), name = "forecast_counts")
 
   for (i in seq_along(cfg$designs)) {
     diag <- d$failures[d$failures$design == names(cfg$designs)[i] & d$failures$method != "DGP", ]
@@ -383,7 +393,7 @@ if (sys.nframe() == 0L) {
   args <- commandArgs(trailingOnly = TRUE)
   if ("--help" %in% args) {
     cat("Usage: Rscript article_paper_simulations.R [input_dir] [output_dir]\n",
-      "  --methods=IHR,MLE,ECH_oracle,ECH_selected --subset=available|qualified\n",
+      "  --methods=IHR,MLE,ECH_oracle,ECH_selected --subset=available|qualified|trimmed\n",
       "  --trim=0.01 --forecast-n=400 --allow-partial --no-png\n",
       "Defaults: paper-results -> paper-results/article; all methods; available subset.\n", sep = "")
   } else {

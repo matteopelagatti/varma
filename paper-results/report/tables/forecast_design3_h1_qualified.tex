@@ -7,21 +7,21 @@ n & Method & B & RMSE & MCSE & Relative RMSE & Ratio MCSE & Paired B \\\midrule
 100 & ECH oracle & 1000 & 1.052 & 0.017 & 1.040 & 0.007 & 1000 \\
 100 & ECH selected & 1000 & 1.060 & 0.017 & 1.048 & 0.008 & 1000 \\
 100 & CML & 1000 & 1.088 & 0.017 & 1.074 & 0.010 & 1000 \\
-100 & IHR &   36 & 1.064 & 0.084 & 1.033 & 0.048 &   36 \\
+100 & IHR &  684 & 1.066 & 0.020 & 1.060 & 0.011 &  684 \\
 100 & HR1 &  979 & 1.077 & 0.018 & 1.064 & 0.009 &  979 \\
-100 & NET &   36 & 1.120 & 0.097 & 1.088 & 0.055 &   36 \\
-100 & RBY &  970 & 1.071 & 0.018 & 1.056 & 0.009 &  970 \\
+100 & NET &  994 & 1.073 & 0.017 & 1.062 & 0.009 &  994 \\
+100 & RBY & 1000 & 1.070 & 0.017 & 1.057 & 0.008 & 1000 \\
 100 & DPF &  989 & 1.088 & 0.018 & 1.075 & 0.011 &  989 \\
 100 & MLE & 1000 & 1.094 & 0.017 & 1.081 & 0.009 & 1000 \\
 100 & VAR (BIC) & 1000 & 1.066 & 0.017 & 1.054 & 0.009 & 1000 \\
 200 & DGP & 1000 & 0.986 & 0.017 & 1.000 & 0.000 & 1000 \\
 200 & ECH oracle & 1000 & 1.009 & 0.017 & 1.024 & 0.004 & 1000 \\
 200 & ECH selected & 1000 & 1.013 & 0.017 & 1.027 & 0.004 & 1000 \\
-200 & CML &  999 & 1.036 & 0.018 & 1.051 & 0.006 &  999 \\
-200 & IHR &   29 & 1.002 & 0.092 & 1.027 & 0.027 &   29 \\
+200 & CML & 1000 & 1.036 & 0.018 & 1.051 & 0.007 & 1000 \\
+200 & IHR &  722 & 1.012 & 0.021 & 1.035 & 0.007 &  722 \\
 200 & HR1 &  998 & 1.020 & 0.017 & 1.037 & 0.006 &  998 \\
-200 & NET &   29 & 1.013 & 0.091 & 1.037 & 0.037 &   29 \\
-200 & RBY &  931 & 1.031 & 0.019 & 1.051 & 0.007 &  931 \\
+200 & NET &  998 & 1.066 & 0.018 & 1.081 & 0.010 &  998 \\
+200 & RBY & 1000 & 1.035 & 0.018 & 1.050 & 0.007 & 1000 \\
 200 & DPF &  999 & 1.021 & 0.017 & 1.035 & 0.006 &  999 \\
 200 & MLE & 1000 & 1.031 & 0.017 & 1.046 & 0.006 & 1000 \\
 200 & VAR (BIC) & 1000 & 1.051 & 0.018 & 1.066 & 0.008 & 1000 \\
@@ -29,14 +29,14 @@ n & Method & B & RMSE & MCSE & Relative RMSE & Ratio MCSE & Paired B \\\midrule
 400 & ECH oracle & 1000 & 1.024 & 0.017 & 1.006 & 0.003 & 1000 \\
 400 & ECH selected & 1000 & 1.024 & 0.017 & 1.006 & 0.003 & 1000 \\
 400 & CML & 1000 & 1.029 & 0.017 & 1.011 & 0.004 & 1000 \\
-400 & IHR &   48 & 0.939 & 0.066 & 1.012 & 0.018 &   48 \\
+400 & IHR &  739 & 1.023 & 0.020 & 1.009 & 0.005 &  739 \\
 400 & HR1 & 1000 & 1.029 & 0.017 & 1.011 & 0.004 & 1000 \\
-400 & NET &   48 & 1.005 & 0.070 & 1.083 & 0.027 &   48 \\
-400 & RBY &  917 & 1.031 & 0.017 & 1.012 & 0.004 &  917 \\
+400 & NET & 1000 & 1.060 & 0.018 & 1.041 & 0.007 & 1000 \\
+400 & RBY & 1000 & 1.029 & 0.017 & 1.011 & 0.004 & 1000 \\
 400 & DPF & 1000 & 1.023 & 0.017 & 1.005 & 0.004 & 1000 \\
-400 & MLE &  999 & 1.033 & 0.017 & 1.014 & 0.005 &  999 \\
+400 & MLE & 1000 & 1.033 & 0.017 & 1.015 & 0.005 & 1000 \\
 400 & VAR (BIC) & 1000 & 1.058 & 0.018 & 1.040 & 0.007 & 1000 \\
 \bottomrule\end{tabular}
 \par\medskip
-\begin{minipage}{0.98\linewidth}\footnotesize Variables are pooled within replication. RMSE is untrimmed. Relative RMSE uses DGP forecasts on the same usable replications. MCSEs use independent replication losses and a delta approximation; they can be unstable with extreme losses. Qualified requires stability, invertibility and applicable convergence. B and Paired B disclose the denominators.\end{minipage}
+\begin{minipage}{0.98\linewidth}\footnotesize Variables are pooled within replication. RMSE is untrimmed. Relative RMSE uses DGP forecasts on the same usable replications. MCSEs use independent replication losses and a delta approximation; they can be unstable with extreme losses. Qualified requires stability and invertibility, irrespective of optimizer convergence. B and Paired B disclose the denominators.\end{minipage}
 \end{table}
